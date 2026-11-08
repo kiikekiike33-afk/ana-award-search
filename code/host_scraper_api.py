@@ -94,12 +94,6 @@ async def ensure_browser():
     browser_ctx = ctx
 
 
-async def reset_browser_session():
-    """※ログイン済みの記憶（Cookie・2段階認証トークン）が消えてしまうのを防ぐため、Cookie消去は行わない"""
-    log("【セッション保護】ログイン状態を維持するため、Cookieを消去せずに待機します...")
-    await asyncio.sleep(3)
-
-
 async def move_window(page, visible: bool):
     """Chromeの窓を閉じずに、画面内 / 画面外へ移動する（Chromeの開発者向け機能 CDP を使用）"""
     try:
@@ -379,6 +373,11 @@ def check_display_mode(html: str) -> str:
     return "miles"
 
 
+def check_rate_limit(html: str) -> bool:
+    """HTML内にユナイテッド航空の一時制限画面（We're sorry...）が含まれているか判定（指示07対応）"""
+    return "we're sorry, but united.com was unable to complete your request" in html.lower()
+
+
 # ---------- API ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -448,11 +447,14 @@ async def search_flights(origin: str, destination: str, date: str, passengers: i
                             detail="ユナイテッド航空のログインが完了していないため、作業を停止しました。",
                         )
 
-                # ユナイテッド航空の一時エラー画面（We're sorry...）の検知（Cookieは絶対に消去しない）
+                # ユナイテッド航空の一時エラー画面（We're sorry...）の検知（指示07対応: 空席なしと誤認させず429を送出）
                 sorry_banner = page.locator("text=We're sorry, but united.com was unable to complete your request")
                 if await is_visible(sorry_banner):
-                    log(f"【検知】{origin}->{destination} ({date}) でユナイテッド航空の一時エラー画面（We're sorry...）が表示されました（ログイン保持のためスキップします）")
-                    return {"status": "success", "flights": []}
+                    log(f"【検知】{origin}->{destination} ({date}) でユナイテッド航空の一時エラー画面（We're sorry...）が表示されました")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="ユナイテッド航空の一時アクセス制限（We're sorry画面）を検知しました。",
+                    )
 
                 await page.keyboard.press("Escape")
                 await asyncio.sleep(2)
@@ -465,6 +467,13 @@ async def search_flights(origin: str, destination: str, date: str, passengers: i
                 html = await page.content()
                 # 調査用に最新の画面写真を1枚だけ残す（毎回上書き）
                 await page.screenshot(path=os.path.join(BASE_DIR, "api_debug_resident.png"), full_page=True)
+
+                if check_rate_limit(html):
+                    log(f"【検知】{origin}->{destination} ({date}) HTML内で一時エラー画面（We're sorry...）を検知しました")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="ユナイテッド航空の一時アクセス制限（We're sorry画面）を検知しました。",
+                    )
 
                 # 現金表示モードの検知（指示03）
                 display_mode = check_display_mode(html)

@@ -3,7 +3,7 @@ import json
 import re
 import urllib.error
 import urllib.request
-from .base import AwardProvider, Availability, BlockedError, CashDisplayError, RetryableError
+from .base import AwardProvider, Availability, BlockedError, CashDisplayError, RateLimitError, RetryableError
 
 try:
     from ..config import settings
@@ -76,6 +76,9 @@ class UAProvider(AwardProvider):
             if e.code == 409:
                 # 現金表示エラー（空席なしと誤認させず、エラーとして伝搬）
                 raise CashDisplayError("ユナイテッド航空の検索結果が現金表示になっているため、マイル特典枠を読み取れませんでした。マイル表示への切替が必要です。")
+            if e.code == 429:
+                # We're sorry 一時制限画面エラー（空席なしと誤認させず、制限エラーとして伝搬）
+                raise RateLimitError("ユナイテッド航空の一時アクセス制限（We're sorry画面）を検知しました。")
             raise RetryableError(f"Windows側のAPIサーバーとの通信に失敗しました: {e}")
         except Exception as e:
             raise RetryableError(f"Windows側のAPIサーバーとの通信に失敗しました: {e}")

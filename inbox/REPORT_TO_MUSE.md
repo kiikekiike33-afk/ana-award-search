@@ -226,3 +226,34 @@
   - 全体テスト（unittest discover）: 16テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示07（P1: 「We're sorry」制限時の扱いと README の一致）に着手します。
+
+### 指示07（P1）「We're sorry」時の扱いと README の一致
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `code/host_scraper_api.py`:
+     - 一時アクセス制限画面（`We're sorry, but united.com was unable to complete your request`）を検知した際、従来の「空席なし（`flights: []`）」を返していた処理を廃止し、HTTP 429（Too Many Requests）を送出するよう改修。
+     - HTML静的検知用関数 `check_rate_limit(html)` を追加。
+     - 呼出元のない死にコードであった `reset_browser_session()` を削除。
+  2. `code/backend/app/scraper/base.py` & `ua.py`:
+     - `RateLimitError` 例外クラスを新設。
+     - `UAProvider.search` でホスト API から HTTP 429 が返った際に `RateLimitError` を送出。
+  3. `code/backend/app/tasks.py`:
+     - `RateLimitError` 発生時、その区間を空席結果リストに含めずスキップし、SSE の `error` イベントで「一時制限検知(We're sorry): 空席なしと記録せずスキップします」と通知。
+     - 連続制限時の安全停止ロジックを実装：単発（1〜2回）の一時制限は15秒クールダウンの上で次区間の検索を続行し、連続3回発生した場合はアカウント保護のためジョブ全体を安全停止（`BlockedError`）。
+  4. `docs/README.md`:
+     - 「自動でCookieを消去してブラウザセッションを再構築」という古い記述を削除し、「ログイン情報（Cookie・2FA）保護のためCookie消去は行わず、一時制限検知時は空席なしと誤認させずにスキップ・連続3回で自動停止」という実装の実態に完全整合化。
+  5. テスト追加（`tests/test_rate_limit.py`）:
+     - 制限画面検知テスト、HTTP 429 受信時に空席なしとならず `RateLimitError` が送出されるテスト、README の記述整合性テストを検証。
+- **変更ファイル**:
+  - `code/host_scraper_api.py`
+  - `code/backend/app/scraper/base.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/backend/app/tasks.py`
+  - `docs/README.md`
+  - `tests/test_rate_limit.py` (新規追加)
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_rate_limit.py`
+  - 3テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 19テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示08（P1: UAログインをメールアドレス入力から完結させる）に着手します。
