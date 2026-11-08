@@ -26,6 +26,7 @@ from playwright.async_api import async_playwright
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # 機密情報（ID/パスワード）は config フォルダの外部ファイルから読み込む
 load_dotenv(os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-search.env")))
+UA_USER = os.getenv("UA_USERNAME", "")
 UA_PW = os.getenv("UA_PASSWORD", "")
 ANA_ID = os.getenv("ANA_MEMBER_ID", "")
 ANA_PW = os.getenv("ANA_PASSWORD", "")
@@ -210,28 +211,72 @@ def show_message(text: str, title: str):
     ctypes.windll.user32.MessageBoxW(0, text, title, 0x40 | 0x10000 | 0x40000)
 
 
-async def do_login(page):
-    """ログインが必要なページで、パスワード自動入力 → コード入力画面で一時停止し、ログイン完了を確認して再開"""
-    log("ログインが必要です。Chromeを最前面に表示してパスワード入力を試みます...")
-    await bring_window_to_foreground(page)
+async def fill_login_credentials(page, username: str, password: str) -> bool:
+    """ログイン画面の入力欄（ユーザー名/メールアドレスおよびパスワード）を判定して自動入力する（指示08対応）"""
+    entered = False
 
-    # パターンB の場合は、まず「Sign In」ボタンでパスワード入力パネルを開く
+    # 1. サインインパネルを開くボタンがある場合はクリック
     sign_in_btn = page.get_by_role("button", name="Sign In", exact=True)
-    if not await is_visible(page.locator("input#password")) and await is_visible(sign_in_btn):
-        await sign_in_btn.first.click()
-        await asyncio.sleep(5)
+    pw_input = page.locator('input#password, input[type="password"]')
+    user_input = page.locator(
+        'input#username, input#email, input#mileagePlusNumber, input[name*="username" i], input[name*="email" i], input[name*="mileage" i], input[autocomplete="username"], input[type="email"]'
+    )
 
-    pw_box = page.locator("input#password")
-    if UA_PW and await is_visible(pw_box):
+    if not await is_visible(pw_input) and not await is_visible(user_input) and await is_visible(sign_in_btn):
+        await sign_in_btn.first.click()
+        await asyncio.sleep(3)
+
+    # 2. ユーザー名 / MileagePlus番号 / メールアドレスの入力
+    user_input = page.locator(
+        'input#username, input#email, input#mileagePlusNumber, input[name*="username" i], input[name*="email" i], input[name*="mileage" i], input[autocomplete="username"], input[type="email"]'
+    )
+    if username and await is_visible(user_input):
         try:
-            await pw_box.first.fill(UA_PW)
-            submit = page.locator('button[type="submit"]', has_text=re.compile(r"^\s*Sign in\s*$"))
-            await submit.first.click()
-            log("パスワードを送信しました。画面の切り替わり（コード入力画面等）を待機します...")
-            # コード入力画面が表示されるまで少し待つ（この間に誤って完了判定しないようにする）
-            await asyncio.sleep(8)
+            log("ユーザー名/MileagePlus番号を入力します...")
+            await user_input.first.fill(username)
+            entered = True
+            await asyncio.sleep(0.5)
+
+            # ステップ型ログイン（ユーザー名入力後に次へボタンを押す画面）の場合
+            pw_input = page.locator('input#password, input[type="password"]')
+            if not await is_visible(pw_input):
+                next_btn = page.locator(
+                    'button[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Sign in"), button:has-text("Sign In")'
+                )
+                if await is_visible(next_btn):
+                    await next_btn.first.click()
+                    await asyncio.sleep(3)
         except Exception as e:
-            log(f"自動ログイン中にエラー: {e}")
+            log(f"ユーザー名入力中にエラー: {e}")
+
+    # 3. パスワードの入力
+    pw_input = page.locator('input#password, input[type="password"]')
+    if password and await is_visible(pw_input):
+        try:
+            log("パスワードを入力します...")
+            await pw_input.first.fill(password)
+            entered = True
+            submit = page.locator('button[type="submit"]', has_text=re.compile(r"^\s*Sign in\s*$", re.IGNORECASE))
+            if await is_visible(submit):
+                await submit.first.click()
+                log("パスワードを送信しました。画面の切り替わりを待機します...")
+                await asyncio.sleep(8)
+            else:
+                submit_alt = page.locator('button:has-text("Sign in"), button:has-text("Sign In")')
+                if await is_visible(submit_alt):
+                    await submit_alt.first.click()
+                    await asyncio.sleep(8)
+        except Exception as e:
+            log(f"パスワード入力中にエラー: {e}")
+
+    return entered
+
+
+async def do_login(page):
+    """ログインが必要なページで、ユーザー名・パスワード自動入力 → コード入力画面で一時停止し、ログイン完了を確認して再開"""
+    log("ログインが必要です。Chromeを最前面に表示して自動ログインを試みます...")
+    await bring_window_to_foreground(page)
+    await fill_login_credentials(page, UA_USER, UA_PW)
 
     # すでに完全ログイン済みか確認し、コード入力画面等が出ている場合は手打ち完了まで完全停止して待つ
     log("確認コード入力またはログイン完了の確認を待機しています（手打ち完了後に自動再開します）...")
