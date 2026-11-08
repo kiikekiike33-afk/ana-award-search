@@ -324,6 +324,35 @@ def parse_flights(html):
     return results
 
 
+def check_display_mode(html: str) -> str:
+    """HTMLから検索結果の表示モード（'miles', 'cash', 'no_flights'）を判定する"""
+    soup = BeautifulSoup(html, "html.parser")
+    flight_nodes = soup.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+    if not flight_nodes:
+        return "no_flights"
+
+    all_cards_text = []
+    for node in flight_nodes:
+        parent = node
+        for _ in range(6):
+            if parent.parent and parent.parent.name not in ["body", "html"]:
+                other_flights = parent.parent.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+                if len(other_flights) > 1:
+                    break
+                parent = parent.parent
+            else:
+                break
+        all_cards_text.append(parent.get_text(separator=" | ", strip=True))
+
+    full_cards_text = " ".join(all_cards_text)
+    has_miles = bool(re.search(r"miles\b", full_cards_text, re.IGNORECASE))
+    has_cash = bool(re.search(r"(\$|USD|JPY|EUR)\s*[\d,]+", full_cards_text, re.IGNORECASE))
+
+    if not has_miles and has_cash:
+        return "cash"
+    return "miles"
+
+
 # ---------- API ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -395,6 +424,15 @@ async def search_flights(origin: str, destination: str, date: str, passengers: i
                 html = await page.content()
                 # 調査用に最新の画面写真を1枚だけ残す（毎回上書き）
                 await page.screenshot(path=os.path.join(BASE_DIR, "api_debug_resident.png"), full_page=True)
+
+                # 現金表示モードの検知（指示03）
+                display_mode = check_display_mode(html)
+                if display_mode == "cash":
+                    log("【検知】検索結果が現金表示（通貨）になっています。マイル表示への切替が必要です。")
+                    raise HTTPException(
+                        status_code=409,
+                        detail="ユナイテッド航空の検索結果が現金表示になっています。マイル表示への切替が必要です。",
+                    )
 
                 flights = parse_flights(html)
                 log(f"{len(flights)} 便見つかりました")

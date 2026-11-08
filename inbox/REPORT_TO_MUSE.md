@@ -95,3 +95,36 @@
   - 全体テスト（unittest discover）: 5テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示03（P1: マイル表示保証・現金表示時のエラー検知）に着手します。
+
+### 指示03（P1）マイル表示を保証し、現金表示時は「空席なし」にしない
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `host_scraper_api.py`:
+     - `check_display_mode(html)` 関数を新設。フライトカードが存在するにもかかわらず `miles` の表記がなく、現金通貨表記（`$` / `USD` / `JPY` / `EUR`）のみが存在する場合を「現金表示モード」として判定。
+     - 現金表示を検知した場合は空席0件（`flights: []`）を返さず、HTTP 409（Conflict）エラーを送出するよう変更。
+  2. `code/backend/app/scraper/base.py` & `ua.py`:
+     - `CashDisplayError` 例外クラスを新設。
+     - `UAProvider.search` でホスト API から HTTP 409 が返った際に `CashDisplayError` を送出。
+  3. `code/backend/app/tasks.py`:
+     - `search_with_retry` で `CashDisplayError` を即座に上位へ伝搬させ、空振りの再試行を回避しつつ SSE の `error` イベントに流すよう設定。空席あり/なしの結果リストには含めない。
+  4. フロントエンド（`app.js`）:
+     - SSE の `error` イベントで現金表示エラーを受け取った際、画面にトースト通知（「⚠️ 【要切替】[区間]: UA画面が現金表示になっています」）を表示。
+  5. テスト追加（`tests/test_cash_display.py`）:
+     - 現金表示HTMLとマイル表示HTMLの判定テスト、および HTTP 409 発生時に `CashDisplayError` が送出されるテストを検証。
+- **変更ファイル**:
+  - `code/host_scraper_api.py`
+  - `code/backend/app/scraper/base.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/backend/app/tasks.py`
+  - `code/frontend/app.js`
+  - `tests/test_cash_display.py` (新規追加)
+- **外部事実の確認（マイル表示強制方法の調査）**:
+  - 現状の `search_url` には `at=1`（Award Travel）および `rm=1`（Redemption Mode）が含まれています。
+  - しかし、ブラウザのキャッシュやプロファイル状態により現金表示に戻る事象に対し、URLパラメータ単体で 100% マイル表示を強制できる確定仕様は公式ドキュメントで確認できないため「**未確認（実機検証継続）**」とします。
+  - そのため、現金表示となった場合に「空席なし」と誤認・偽陰性となるのを完全に防ぎ、検知してエラーとして伝搬するセーフガードを確立しました。
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_cash_display.py`
+  - 2テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 7テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - URLパラメータ単体での完全なマイル表示強制仕様は未確認（検知・エラー通知で保護済み）。直ちに指示04（P1: パーサの取りこぼし検知）に着手します。

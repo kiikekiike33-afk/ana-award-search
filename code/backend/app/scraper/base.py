@@ -15,6 +15,10 @@ class BlockedError(Exception):
     """ボット対策（CAPTCHAなど）を検知 → 突破は試みず、すぐに検索を止める"""
 
 
+class CashDisplayError(Exception):
+    """United検索結果が現金表示になっているエラー（空席なしと誤判定させない）"""
+
+
 @dataclass
 class Availability:
     query: dict

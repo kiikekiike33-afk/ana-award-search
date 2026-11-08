@@ -9,7 +9,7 @@ from .areas import build_queries
 from .config import settings
 from .progress import JobStore
 from .scraper import get_provider
-from .scraper.base import BlockedError, RetryableError, SessionExpiredError
+from .scraper.base import BlockedError, CashDisplayError, RetryableError, SessionExpiredError
 
 celery_app = Celery("ana", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(worker_prefetch_multiplier=1, task_acks_late=True)
@@ -30,6 +30,9 @@ def search_with_retry(provider, q: dict):
             return provider.search(q)
         except BlockedError:
             # 認証コード待機などで作業を止める場合は、リトライせず即座に中断する
+            raise
+        except CashDisplayError:
+            # 現金表示エラーは無駄に再試行せず即座に上位へ伝え、エラー通知する
             raise
         except SessionExpiredError:
             if attempt == settings.max_retries:

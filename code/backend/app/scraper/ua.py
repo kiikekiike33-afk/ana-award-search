@@ -3,7 +3,7 @@ import json
 import re
 import urllib.error
 import urllib.request
-from .base import AwardProvider, Availability, BlockedError, RetryableError
+from .base import AwardProvider, Availability, BlockedError, CashDisplayError, RetryableError
 
 
 def _parse_miles_num(miles_str: str) -> float:
@@ -52,6 +52,9 @@ class UAProvider(AwardProvider):
             if e.code == 401:
                 # 認証コード待ちタイムアウト時はリトライや次の都市への移動を一切行わず、その場で検索ジョブ全体を停止する
                 raise BlockedError("認証コード入力待ちのため検索を一時停止しました（再度のログイン試行は行いません）。Chrome画面でコードを入力してログイン完了後、もう一度検索を開始してください。")
+            if e.code == 409:
+                # 現金表示エラー（空席なしと誤認させず、エラーとして伝搬）
+                raise CashDisplayError("ユナイテッド航空の検索結果が現金表示になっているため、マイル特典枠を読み取れませんでした。マイル表示への切替が必要です。")
             raise RetryableError(f"Windows側のAPIサーバーとの通信に失敗しました: {e}")
         except Exception as e:
             raise RetryableError(f"Windows側のAPIサーバーとの通信に失敗しました: {e}")

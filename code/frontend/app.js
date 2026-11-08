@@ -281,7 +281,15 @@ function startStream(id) {
     updateDestinationFilterOptions();
     render();
   });
-  on('error', (d) => console.warn('検索エラー', d.current, d.message));
+  on('error', (d) => {
+    console.warn('検索エラー', d.current, d.message);
+    const msg = d.message || '';
+    if (msg.includes('現金表示') || msg.includes('409') || msg.includes('マイル表示')) {
+      showToast(`⚠️ 【要切替】${d.current}: UA画面が現金表示になっています`);
+    } else {
+      showToast(`⚠️ エラー発生: ${d.current}`);
+    }
+  });
   on('done', (d) => { updateProgress({ ...d, current: '' }); finish('done'); });
   on('failed', (d) => finish('failed', d.message));
   on('cancelled', () => finish('cancelled'));
