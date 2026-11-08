@@ -279,3 +279,31 @@
   - 全体テスト（unittest discover）: 21テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - 実サイトでの完全な再ログイン確認はセッション切れ発生時の確認待ち（実機未検証）。直ちに指示09（P2: 設定値の食い違い解消）に着手します。
+
+### 指示09（P2）設定値の食い違いを解消する
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. PC上の実運用環境設定（`config/ana-award-search.env`）および `code/backend/app/config.py` の安全運用デフォルト値（4-9秒遅延、50件ごと90秒休憩、上限2000件）を確認。
+  2. 実運用設定を正として `.env.example` の古い開発初期値をこれに統一。指示06で追加した `HOST_API_TOKEN` のサンプル値および安全運用コメントも追記。
+  3. テスト追加（`tests/test_config_consistency.py`）:
+     - `.env.example` の各設定項目が `config.py` のデフォルト値と完全に一致していることを AST 解析により検証。
+- **変更ファイル**:
+  - `.env.example`
+  - `tests/test_config_consistency.py` (新規追加)
+- **統一後の設定値対応表**:
+  | 設定項目名 | 実運用値 (PC env) | config.py デフォルト | .env.example | 備考 |
+  |---|---|---|---|---|
+  | `SCRAPER_PROVIDER` | `ua` | `ua` | `ua` | 実サイト検索 (ua) / テスト用ダミー (mock) |
+  | `HOST_API_TOKEN` | (新設) | `ana-award-local-token-2026` | `ana-award-local-token-2026` | ホストAPI認証用共有シークレット |
+  | `MIN_DELAY_SEC` | `4` | `4.0` | `4.0` | 検索ごとの最小安全待機秒数（Polite delay） |
+  | `MAX_DELAY_SEC` | `9` | `9.0` | `9.0` | 検索ごとの最大安全待機秒数 |
+  | `LONG_BREAK_EVERY` | `50` | `50` | `50` | 長めの休憩を挟む件数間隔 |
+  | `LONG_BREAK_SEC` | `90` | `90.0` | `90.0` | 長めの休憩の秒数 |
+  | `MAX_RETRIES` | `3` | `3` | `3` | 最大再試行回数 |
+  | `MAX_QUERIES_PER_JOB` | `2000` | `2000` | `2000` | 1ジョブあたりの検索上限件数 |
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_config_consistency.py`
+  - 1テスト実行、成功 (OK)
+  - 全体テスト（unittest discover）: 22テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示10（P2: .gitignoreの穴を塞ぐ）に着手します。
