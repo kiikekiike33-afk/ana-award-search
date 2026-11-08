@@ -131,13 +131,14 @@ class UAProvider(AwardProvider):
                 flight_no = f"💺 {target_miles} ({dep_time} → {arr_time} [{stop_label}])"
             else:
                 orig_code, dep_time, dest_code, arr_time = origin, "", dest, ""
-                is_direct = False
-                stop_label = "詳細確認"
-                flight_no = f"💺 {target_miles}"
+                is_direct = None # 直行/経由の判定不能（指示04対応: 偽陰性を防ぐためNoneとして保持）
+                stop_label = "直行/経由不明（要詳細確認）"
+                flight_no = f"💺 {target_miles} (詳細確認)"
 
-            # 「直行便のみ」が有効な場合は、経由便（乗継便）や他空港発着便を完全に除外し、純粋な直行便のみに絞る
+            # 「直行便のみ」が有効な場合:
+            # 経由便と確定しているもの（is_direct is False）のみ除外し、直行不明便（is_direct is None）は無言で捨てない
             if direct_only:
-                if not is_direct:
+                if is_direct is False:
                     continue
                 if orig_code != origin or dest_code != dest:
                     continue
@@ -159,19 +160,32 @@ class UAProvider(AwardProvider):
                 "stop_label": stop_label,
             })
 
-        # 見やすいように「直行便を最優先」→「必要マイルが少ない順」に並び替える
-        formatted_flights.sort(key=lambda x: (0 if x["is_direct"] else 1, x["miles_num"]))
+        # 見やすいように「直行便(0)」→「直行不明(1)」→「経由便(2)」→「必要マイルが少ない順」に並び替える
+        def _sort_priority(x):
+            if x["is_direct"] is True:
+                return 0
+            if x["is_direct"] is None:
+                return 1
+            return 2
+
+        formatted_flights.sort(key=lambda x: (_sort_priority(x), x["miles_num"]))
 
         available = len(formatted_flights) > 0
-        direct_count = sum(1 for x in formatted_flights if x["is_direct"])
+        direct_count = sum(1 for x in formatted_flights if x["is_direct"] is True)
+        unknown_direct_count = sum(1 for x in formatted_flights if x["is_direct"] is None)
         dynamic_count = len(dynamic_flights)
         unknown_count = len(unknown_class_flights)
+        parse_failed_count = data.get("parse_failed_count", 0)
 
         notes = []
         if dynamic_count > 0:
             notes.append(f"UAダイナミック枠{dynamic_count}件除外")
         if unknown_count > 0:
             notes.append(f"クラス不明{unknown_count}件除外")
+        if parse_failed_count > 0:
+            notes.append(f"パース失敗{parse_failed_count}件")
+        if unknown_direct_count > 0:
+            notes.append(f"直行不明{unknown_direct_count}便")
         note_str = f" （{', '.join(notes)}）" if notes else ""
 
         if available:
@@ -187,5 +201,6 @@ class UAProvider(AwardProvider):
             flights=formatted_flights,
             dynamic_count=dynamic_count,
             unknown_count=unknown_count,
+            parse_failed_count=parse_failed_count,
         )
 

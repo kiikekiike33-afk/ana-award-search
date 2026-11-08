@@ -279,14 +279,15 @@ async def initial_login_check():
 
 
 # ---------- 検索結果の読み取り ----------
-def parse_flights(html):
-    """HTMLからフライト情報を抽出する（運賃クラス I/X/O/JN 等を保持）"""
+def parse_flights_with_meta(html):
+    """HTMLからフライト情報を抽出する（運賃クラス保持およびパース失敗検知）"""
     soup = BeautifulSoup(html, "html.parser")
     flight_nodes = soup.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
 
     results = []
+    failed_count = 0
     for node in flight_nodes:
-        flight_desc = node["aria-label"]
+        flight_desc = node.get("aria-label", "")
         parent = node
         for _ in range(6):
             if parent.parent and parent.parent.name not in ["body", "html"]:
@@ -302,6 +303,21 @@ def parse_flights(html):
         eco_match = re.search(r"Economy(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
         bus_match = re.search(r"Business(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
         first_match = re.search(r"First(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+
+        # マイルまたは価格表記が全く取れず、クラス抽出が空の場合はパース失敗カードとしてカウント
+        if not eco_match and not bus_match and not first_match:
+            failed_count += 1
+            results.append({
+                "flight_description": flight_desc,
+                "economy_miles": "N/A",
+                "economy_fare_class": None,
+                "business_miles": "N/A",
+                "business_fare_class": None,
+                "first_miles": "N/A",
+                "first_fare_class": None,
+                "parse_failed": True,
+            })
+            continue
 
         eco_miles = eco_match.group(2) if eco_match else "N/A"
         eco_class = eco_match.group(1).upper() if (eco_match and eco_match.group(1)) else ("UNKNOWN" if eco_match else None)
@@ -320,8 +336,15 @@ def parse_flights(html):
             "business_fare_class": bus_class,
             "first_miles": first_miles,
             "first_fare_class": first_class,
+            "parse_failed": False,
         })
-    return results
+    return results, failed_count
+
+
+def parse_flights(html):
+    """下位互換用: フライトリストのみを返す"""
+    flights, _ = parse_flights_with_meta(html)
+    return flights
 
 
 def check_display_mode(html: str) -> str:
@@ -434,9 +457,13 @@ async def search_flights(origin: str, destination: str, date: str, passengers: i
                         detail="ユナイテッド航空の検索結果が現金表示になっています。マイル表示への切替が必要です。",
                     )
 
-                flights = parse_flights(html)
-                log(f"{len(flights)} 便見つかりました")
-                return {"status": "success", "flights": flights}
+                flights, parse_failed_count = parse_flights_with_meta(html)
+                log(f"{len(flights)} 便抽出完了（パース失敗: {parse_failed_count} 便）")
+                return {
+                    "status": "success",
+                    "flights": flights,
+                    "parse_failed_count": parse_failed_count,
+                }
 
             except HTTPException:
                 raise

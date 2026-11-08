@@ -468,8 +468,8 @@ function renderList() {
         ? `${esc(f.dep_time)}発 → ${esc(f.arr_time)}着`
         : f.dep_time ? `${esc(f.dep_time)}発` : '時刻詳細は予約画面で確認';
 
-      const stopBadgeClass = f.is_direct ? 'stop-direct' : 'stop-conn';
-      const itemClass = f.is_direct ? 'flight-item is-direct' : 'flight-item';
+      const stopBadgeClass = f.is_direct === true ? 'stop-direct' : (f.is_direct === false ? 'stop-conn' : 'stop-unknown');
+      const itemClass = f.is_direct === true ? 'flight-item is-direct' : 'flight-item';
       const fareClassBadge = f.fare_class
         ? `<span class="fare-badge" title="予約クラス: ${esc(f.fare_class)}">クラス: ${esc(f.fare_class)}</span>`
         : '';
@@ -509,6 +509,7 @@ function renderList() {
         <td class="route-cell">
           <span class="route-codes">${esc(q.origin)} → ${esc(q.destination)}</span>
           <span class="route-names">${esc(airportNames[q.origin] || q.origin)} ✈ ${esc(airportNames[q.destination] || q.destination)}</span>
+          ${r.parse_failed_count ? `<span class="parse-fail-badge" title="${r.parse_failed_count}件のカードを正常にパースできませんでした">⚠️ 一部読取失敗: ${r.parse_failed_count}件</span>` : ''}
         </td>
         <td>
           <div class="flight-list">${flightsHtml}</div>

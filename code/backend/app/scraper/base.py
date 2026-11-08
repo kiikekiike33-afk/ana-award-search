@@ -27,6 +27,7 @@ class Availability:
     flights: list[dict] = field(default_factory=list)
     dynamic_count: int = 0                        # ANA発券対象外のダイナミックプライス枠件数
     unknown_count: int = 0                        # 運賃クラス不明の件数
+    parse_failed_count: int = 0                   # 抽出に失敗したフライトカード件数
 
 
 class AwardProvider(ABC):

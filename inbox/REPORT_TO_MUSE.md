@@ -128,3 +128,32 @@
   - 全体テスト（unittest discover）: 7テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - URLパラメータ単体での完全なマイル表示強制仕様は未確認（検知・エラー通知で保護済み）。直ちに指示04（P1: パーサの取りこぼし検知）に着手します。
+
+### 指示04（P1）パーサの取りこぼしを無言で捨てない
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `host_scraper_api.py`:
+     - 括弧なし表記（例: `Business | 88k | miles`）から正常にマイル数を抽出し、`UNKNOWN` クラスとして保持。
+     - `parse_flights_with_meta` を追加し、マイルや価格情報が一切取得できない破損カードを検知して `parse_failed_count` を集計。
+     - `/api/search` のレスポンスに `parse_failed_count` を含めて backend に返却。
+  2. `code/backend/app/scraper/ua.py` & `base.py`:
+     - `Availability` に `parse_failed_count` を追加。
+     - 説明文の定型フォーマットに合致しない便について、従来は `is_direct = False` となり `direct_only=True` 時に無言脱落（偽陰性）していたロジックを修正。`is_direct = None`（直行/経由不明）とし、`direct_only` 検索時でも無言で捨てずに「直行/経由不明（要詳細確認）」として結果に残すよう変更。
+     - `seats_text` に「パース失敗N件」「直行不明N便」の注記を反映。
+  3. フロントエンド表示（`app.js`, `style.css`）:
+     - `stop-unknown`（直行不明時用の警告バッジ）および `parse-fail-badge`（⚠️ 一部読取失敗: N件）を追加表示。
+  4. テスト追加（`tests/test_parser_fallback.py`）:
+     - 括弧なし表記でマイルが抽出できること、パース不能カードが件数計上されること、説明文パース失敗便が `direct_only=True` でも無言脱落しないことを検証。
+- **変更ファイル**:
+  - `code/host_scraper_api.py`
+  - `code/backend/app/scraper/base.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/frontend/app.js`
+  - `code/frontend/style.css`
+  - `tests/test_parser_fallback.py` (新規追加)
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_parser_fallback.py`
+  - 3テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 10テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示05（P1: エリア追加と直行路線の事実確認）に着手します。
