@@ -462,19 +462,25 @@ function renderList() {
 
       const stopBadgeClass = f.is_direct ? 'stop-direct' : 'stop-conn';
       const itemClass = f.is_direct ? 'flight-item is-direct' : 'flight-item';
+      const fareClassBadge = f.fare_class
+        ? `<span class="fare-badge" title="予約クラス: ${esc(f.fare_class)}">クラス: ${esc(f.fare_class)}</span>`
+        : '';
 
       // 他クラスの参考マイル表示
       let otherClassHint = '';
       if (q.cabin === 'economy' && f.business_miles && f.business_miles !== 'N/A') {
-        otherClassHint = `<span class="sub-miles-hint">（ビジネス: ${esc(f.business_miles)}）</span>`;
+        const bCls = f.business_fare_class ? ` (${esc(f.business_fare_class)})` : '';
+        otherClassHint = `<span class="sub-miles-hint">（ビジネス: ${esc(f.business_miles)}${bCls}）</span>`;
       } else if (q.cabin !== 'economy' && f.economy_miles && f.economy_miles !== 'N/A') {
-        otherClassHint = `<span class="sub-miles-hint">（エコノミー: ${esc(f.economy_miles)}）</span>`;
+        const eCls = f.economy_fare_class ? ` (${esc(f.economy_fare_class)})` : '';
+        otherClassHint = `<span class="sub-miles-hint">（エコノミー: ${esc(f.economy_miles)}${eCls}）</span>`;
       }
 
       return `
         <div class="${itemClass}">
           <div class="flight-info">
             <span class="miles-badge">💺 ${esc(f.miles)}</span>
+            ${fareClassBadge}
             <span class="stop-badge ${stopBadgeClass}">${esc(f.stop_label)}</span>
             <span class="time-text">${timeStr}</span>
             ${otherClassHint}
@@ -612,7 +618,7 @@ $('#btn-export-csv').onclick = () => {
     showToast('⚠️ 出力する空席データがありません');
     return;
   }
-  const csvLines = [['日付', '曜日', '出発地コード', '出発都市', '目的地コード', '目的都市', '種別', '必要マイル', '出発時刻', '到着時刻']];
+  const csvLines = [['日付', '曜日', '出発地コード', '出発都市', '目的地コード', '目的都市', '予約クラス', '種別', '必要マイル', '出発時刻', '到着時刻']];
   for (const r of rows) {
     const q = r.query;
     const dow = getDowInfo(q.date).label;
@@ -624,6 +630,7 @@ $('#btn-export-csv').onclick = () => {
         airportNames[q.origin] || q.origin,
         q.destination,
         airportNames[q.destination] || q.destination,
+        f.fare_class || '',
         f.stop_label,
         f.miles,
         f.dep_time || '',

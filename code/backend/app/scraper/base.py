@@ -21,6 +21,8 @@ class Availability:
     available: bool
     seats_text: str = ""                          # 例："空席あり" / "残りわずか"
     flights: list[dict] = field(default_factory=list)
+    dynamic_count: int = 0                        # ANA発券対象外のダイナミックプライス枠件数
+    unknown_count: int = 0                        # 運賃クラス不明の件数
 
 
 class AwardProvider(ABC):

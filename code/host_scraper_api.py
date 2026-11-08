@@ -278,8 +278,9 @@ async def initial_login_check():
         log("準備完了：検索を受け付けます")
 
 
-# ---------- 検索結果の読み取り（従来どおり） ----------
+# ---------- 検索結果の読み取り ----------
 def parse_flights(html):
+    """HTMLからフライト情報を抽出する（運賃クラス I/X/O/JN 等を保持）"""
     soup = BeautifulSoup(html, "html.parser")
     flight_nodes = soup.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
 
@@ -288,17 +289,37 @@ def parse_flights(html):
         flight_desc = node["aria-label"]
         parent = node
         for _ in range(6):
-            if parent.parent:
+            if parent.parent and parent.parent.name not in ["body", "html"]:
+                # 祖先を遡りすぎて他のフライトブロックを巻き込まないようにする
+                other_flights = parent.parent.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+                if len(other_flights) > 1:
+                    break
                 parent = parent.parent
+            else:
+                break
         raw_text = parent.get_text(separator=" | ", strip=True)
 
-        eco_match = re.search(r"Economy\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text)
-        bus_match = re.search(r"Business[^(]*\([^)]*\)\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text)
+        eco_match = re.search(r"Economy(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+        bus_match = re.search(r"Business(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+        first_match = re.search(r"First(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+
+        eco_miles = eco_match.group(2) if eco_match else "N/A"
+        eco_class = eco_match.group(1).upper() if (eco_match and eco_match.group(1)) else ("UNKNOWN" if eco_match else None)
+
+        bus_miles = bus_match.group(2) if bus_match else "N/A"
+        bus_class = bus_match.group(1).upper() if (bus_match and bus_match.group(1)) else ("UNKNOWN" if bus_match else None)
+
+        first_miles = first_match.group(2) if first_match else "N/A"
+        first_class = first_match.group(1).upper() if (first_match and first_match.group(1)) else ("UNKNOWN" if first_match else None)
 
         results.append({
             "flight_description": flight_desc,
-            "economy_miles": eco_match.group(1) if eco_match else "N/A",
-            "business_miles": bus_match.group(1) if bus_match else "N/A",
+            "economy_miles": eco_miles,
+            "economy_fare_class": eco_class,
+            "business_miles": bus_miles,
+            "business_fare_class": bus_class,
+            "first_miles": first_miles,
+            "first_fare_class": first_class,
         })
     return results
 

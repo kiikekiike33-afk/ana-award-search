@@ -59,17 +59,57 @@ class UAProvider(AwardProvider):
         cabin = query.get("cabin", "economy")
         direct_only = query.get("direct_only", True)
 
+        # スターアライアンス提携社（ANA等）特典枠として発券可能なセーバー運賃クラス
+        # エコノミー: X, ビジネス: I, ファースト: O (ファースト指定時は I または O を許容)
+        # ※JN, IN, ZN, YN, HN 等はUA自社会員向け専用またはダイナミックプライス枠のため除外
+        SAVER_CLASSES = {
+            "economy": {"X"},
+            "business": {"I"},
+            "first": {"O", "I"},
+        }
+        target_allowed_classes = SAVER_CLASSES.get(cabin, {"X", "I", "O"})
+
         formatted_flights = []
+        dynamic_flights = []
+        unknown_class_flights = []
+
         for f in raw_flights:
             eco = f.get("economy_miles", "N/A")
             bus = f.get("business_miles", "N/A")
+            first = f.get("first_miles", "N/A")
+            eco_cls = f.get("economy_fare_class")
+            bus_cls = f.get("business_fare_class")
+            first_cls = f.get("first_fare_class")
             desc = f.get("flight_description", "")
 
-            # 検索条件のクラスに応じたマイル数を取得（ファースト指定時はビジネス枠を参照）
-            target_miles = eco if cabin == "economy" else bus
+            # 検索条件のクラスに応じたマイル数と運賃クラスを取得
+            if cabin == "economy":
+                target_miles = eco
+                target_class = eco_cls
+            elif cabin == "business":
+                target_miles = bus
+                target_class = bus_cls
+            else: # first
+                if first != "N/A" and first:
+                    target_miles = first
+                    target_class = first_cls
+                else:
+                    target_miles = bus
+                    target_class = bus_cls
 
             # 「55k」などの数字が含まれていない場合（N/Aなど）は空席なしとみなしてスキップ
             if not re.search(r"\d", str(target_miles)):
+                continue
+
+            # 運賃クラスの検証（ダイナミック枠およびクラス不明枠の除外）
+            if not target_class or target_class == "UNKNOWN":
+                # クラス不明便（無言で空席に混ぜず、無言で捨てずカウント）
+                unknown_class_flights.append(f)
+                continue
+
+            if target_class not in target_allowed_classes:
+                # UA自社ダイナミック枠等（ANA発券対象外）として除外
+                dynamic_flights.append(f)
                 continue
 
             miles_num = _parse_miles_num(target_miles)
@@ -102,8 +142,11 @@ class UAProvider(AwardProvider):
                 "flight_no": flight_no,
                 "miles": target_miles,
                 "miles_num": miles_num,
+                "fare_class": target_class,
                 "economy_miles": eco,
+                "economy_fare_class": eco_cls,
                 "business_miles": bus,
+                "business_fare_class": bus_cls,
                 "orig_code": orig_code,
                 "dest_code": dest_code,
                 "dep_time": dep_time,
@@ -117,12 +160,28 @@ class UAProvider(AwardProvider):
 
         available = len(formatted_flights) > 0
         direct_count = sum(1 for x in formatted_flights if x["is_direct"])
-        seats_text = f"直行{direct_count}便 / 全{len(formatted_flights)}便" if direct_count else f"全{len(formatted_flights)}便"
+        dynamic_count = len(dynamic_flights)
+        unknown_count = len(unknown_class_flights)
+
+        notes = []
+        if dynamic_count > 0:
+            notes.append(f"UAダイナミック枠{dynamic_count}件除外")
+        if unknown_count > 0:
+            notes.append(f"クラス不明{unknown_count}件除外")
+        note_str = f" （{', '.join(notes)}）" if notes else ""
+
+        if available:
+            base_text = f"直行{direct_count}便 / 全{len(formatted_flights)}便" if direct_count else f"全{len(formatted_flights)}便"
+            seats_text = base_text + note_str
+        else:
+            seats_text = f"空席なし{note_str}"
 
         return Availability(
             query=query,
             available=available,
-            seats_text=seats_text if available else "空席なし",
+            seats_text=seats_text,
             flights=formatted_flights,
+            dynamic_count=dynamic_count,
+            unknown_count=unknown_count,
         )
 
