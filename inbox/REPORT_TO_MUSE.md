@@ -66,3 +66,32 @@
   - 3テスト実行、全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示02（P0: 搭乗人数の検索反映）に着手します。
+
+### 指示02（P0）搭乗人数を検索に反映する
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `host_scraper_api.py`:
+     - `search_url` に `passengers: int = 1` 引数を追加し、United 検索 URL の `px` パラメータを `px={passengers}` として動的に反映。
+     - `@app.get("/api/search")` に `passengers: int = 1` を追加し、検索 URL 構築へ伝搬。
+  2. `code/backend/app/scraper/ua.py`:
+     - `UAProvider.search` で `query.get("passengers", 1)` を取得し、ホスト API への GET リクエスト URL に `&passengers={passengers}` を付加。
+  3. フロントエンド表示（`index.html`）:
+     - 常設注意書きバナーに「表示マイル数は1名あたりの参考値であり、指定人数分の空席が確保できる便のみを抽出している」旨を明記。
+  4. テスト追加（`tests/test_passengers.py`）:
+     - `search_url` で `passengers=2` 時に `px=2` が生成されること、および `UAProvider.search` からホスト API へ `passengers=2` が伝搬されることを検証。
+- **変更ファイル**:
+  - `code/host_scraper_api.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/frontend/index.html`
+  - `tests/test_passengers.py` (新規追加)
+- **外部事実の確認（United 検索結果のマイル表示仕様）**:
+  - United 航空の特典検索画面（`choose-flights`）における仕様:
+    - 複数名（例: `px=2`）で検索した場合でも、一覧カードに表示される数値（`Economy (X) | 35k | miles` 等）は **1名あたりの必要マイル数（per traveler）** です（合計マイル数は便選択後の最終確認画面で計算）。
+    - 一方、`px=N` で検索することにより、システム側で「指定した N 名分の特典枠が同時に確保できる便」のみにフィルタリングされます（1名分しか残っていない便は除外されます）。
+    - したがって、「表示マイル数は1名分」「表示される便は指定人数分の空席あり」という仕様実態とアプリ画面の整合性を確保しました。
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_passengers.py`
+  - 2テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 5テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示03（P1: マイル表示保証・現金表示時のエラー検知）に着手します。

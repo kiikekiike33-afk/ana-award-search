@@ -38,9 +38,10 @@ class UAProvider(AwardProvider):
         origin = query.get("origin", "")
         dest = query.get("destination", "")
         date_str = query.get("date", "")
+        passengers = query.get("passengers", 1)
 
         # Dockerコンテナの中から、Windowsホスト（host.docker.internal）の8001番ポートへ通信
-        url = f"http://host.docker.internal:8001/api/search?origin={origin}&destination={dest}&date={date_str}"
+        url = f"http://host.docker.internal:8001/api/search?origin={origin}&destination={dest}&date={date_str}&passengers={passengers}"
 
         try:
             # ブラウザの自動操作（ログイン時の確認コード手打ち待機を含む）が終わるまで最長360秒（6分）待機

@@ -62,9 +62,9 @@ def log(msg: str):
     print(msg, flush=True)
 
 
-def search_url(origin: str, destination: str, date_str: str) -> str:
+def search_url(origin: str, destination: str, date_str: str, passengers: int = 1) -> str:
     return (f"https://www.united.com/en/us/fsr/choose-flights?f={origin}&t={destination}&d={date_str}"
-            "&tt=1&at=1&rm=1&act=0&px=1&taxng=1&newHP=True&clm=7&st=bestmatches&fareWheel=False")
+            f"&tt=1&at=1&rm=1&act=0&px={passengers}&taxng=1&newHP=True&clm=7&st=bestmatches&fareWheel=False")
 
 
 # ---------- ブラウザ管理 ----------
@@ -343,8 +343,8 @@ app = FastAPI(title="UA Scraper API", lifespan=lifespan)
 
 
 @app.get("/api/search")
-async def search_flights(origin: str, destination: str, date: str):
-    log(f"検索リクエスト: {origin} -> {destination} {date}")
+async def search_flights(origin: str, destination: str, date: str, passengers: int = 1):
+    log(f"検索リクエスト: {origin} -> {destination} {date} ({passengers}名)")
     async with search_lock:
         # 1回目でログイン切れが分かったら、そのタブでログイン完了まで待機する
         for attempt in range(2):
@@ -354,7 +354,7 @@ async def search_flights(origin: str, destination: str, date: str):
                 await ensure_browser()
                 page = await browser_ctx.new_page()
                 await move_window(page, visible=True)  # 強制的に画面内へ引き戻す
-                await page.goto(search_url(origin, destination, date), wait_until="domcontentloaded", timeout=60000)
+                await page.goto(search_url(origin, destination, date, passengers), wait_until="domcontentloaded", timeout=60000)
                 await asyncio.sleep(15)
 
                 # Escapeでポップアップを閉じる前に、ログイン切れかどうかを確認する
