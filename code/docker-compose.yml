@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:7-alpine
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file: ../../../config/ana-award-search.env
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./backend/app:/srv/app
+      - ./frontend:/srv/frontend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  worker:
+    build: ./backend
+    command: celery -A app.tasks worker --concurrency=1 --loglevel=info
+    env_file: ../../../config/ana-award-search.env
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./backend/app:/srv/app
+      - ./frontend:/srv/frontend
+    depends_on:
+      - redis
+

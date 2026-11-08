@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ANA Star Alliance Award Search | 特典航空券 空席サーチ</title>
+  <link rel="stylesheet" href="style.css?v=20261027_01">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-badge">STAR ALLIANCE AWARD</span>
+        <h1>✈ ANA特典航空券 空席サーチ</h1>
+        <p class="subtitle">スターアライアンス提携枠（片道）の空席日程・必要マイルを一括検索</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 検索条件フォーム -->
+    <section class="card search-card">
+      <div class="card-header">
+        <h2>検索条件の指定</h2>
+        <div id="query-preview" class="query-preview">予定検索数：計算中...</div>
+      </div>
+
+      <form id="search-form">
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">出発地</span>
+            <select name="origin" id="origin"></select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">目的地（エリアまたは個別空港）</span>
+            <select name="destination" id="destination"></select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">クラス</span>
+            <select name="cabin" id="cabin">
+              <option value="economy">エコノミー（Economy）</option>
+              <option value="business">ビジネス（Business）</option>
+              <option value="first">ファースト / ビジネス枠</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">搭乗人数</span>
+            <input type="number" name="passengers" id="passengers" min="1" max="9" value="1">
+          </label>
+
+          <label class="field">
+            <span class="field-label">開始日</span>
+            <input type="date" name="start_date" id="start_date" required>
+          </label>
+
+          <label class="field">
+            <span class="field-label">終了日</span>
+            <input type="date" name="end_date" id="end_date" required>
+          </label>
+        </div>
+
+        <!-- 期間クイックプリセット -->
+        <div class="presets-bar">
+          <span class="presets-title">📅 期間プリセット：</span>
+          <div class="presets-buttons">
+            <button type="button" class="btn-chip" data-days="3">開始日から3日間</button>
+            <button type="button" class="btn-chip" data-days="7">開始日から1週間</button>
+            <button type="button" class="btn-chip" data-days="14">開始日から2週間</button>
+            <div class="month-picker-group">
+              <input type="month" id="month-pick" aria-label="月指定">
+              <button type="button" class="btn-chip" id="btn-month">指定月の全日程</button>
+            </div>
+            <button type="button" class="btn-chip" data-months="3">今日から3ヶ月</button>
+          </div>
+        </div>
+
+        <!-- オプション＆検索開始ボタン -->
+        <div class="form-footer">
+          <label class="checkbox-label">
+            <input type="checkbox" name="direct_only" id="direct_only" value="true" checked>
+            <span>純粋な直行便（ノンストップ便）のみを検索・表示する（経由便を完全除外）</span>
+          </label>
+
+          <div class="action-buttons">
+            <button type="submit" id="btn-search" class="btn-primary">
+              <span class="btn-icon">🔍</span> 空席サーチ開始
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- 進捗表示エリア -->
+    <section id="progress-box" class="card progress-card" hidden>
+      <div class="progress-header">
+        <div class="progress-status">
+          <span class="spinner" id="progress-spinner"></span>
+          <span id="progress-text" class="progress-text">検索を準備しています…</span>
+        </div>
+        <button type="button" id="btn-cancel" class="btn-danger">⏹ キャンセル</button>
+      </div>
+      <div class="bar">
+        <div id="bar-fill"></div>
+      </div>
+    </section>
+
+    <!-- ステータスメッセージ -->
+    <div id="message" class="status-banner" hidden></div>
+
+    <!-- 検索結果エリア -->
+    <section id="results-box" class="card results-card" hidden>
+      <!-- サマリー統計バー -->
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat-item">
+          <span class="stat-label">空席あり日程</span>
+          <strong class="stat-value" id="stat-days">0区間</strong>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">ヒット便数（合計）</span>
+          <strong class="stat-value" id="stat-flights">0便</strong>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">うち直行便</span>
+          <strong class="stat-value stat-gold" id="stat-direct">0便</strong>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">最安必要マイル</span>
+          <strong class="stat-value stat-accent" id="stat-min-miles">-</strong>
+        </div>
+      </div>
+
+      <!-- タブ＆ツールバー -->
+      <div class="results-toolbar">
+        <div class="tabs">
+          <button type="button" data-view="list" class="tab-btn active">📋 空席フライト一覧</button>
+          <button type="button" data-view="calendar" class="tab-btn">📅 カレンダー表示</button>
+        </div>
+
+        <div class="filters-group">
+          <label class="filter-item">
+            <span>種別：</span>
+            <select id="filter-type">
+              <option value="all">すべて表示</option>
+              <option value="direct">✨ 直行便のみ</option>
+              <option value="connecting">🔄 経由便のみ</option>
+            </select>
+          </label>
+
+          <label class="filter-item">
+            <span>目的地：</span>
+            <select id="filter-dest">
+              <option value="all">すべての空港</option>
+            </select>
+          </label>
+
+          <label class="filter-item">
+            <span>並び順：</span>
+            <select id="sort-by">
+              <option value="date">日付が早い順</option>
+              <option value="miles">マイルが少ない順</option>
+              <option value="direct">直行便優先</option>
+            </select>
+          </label>
+
+          <button type="button" id="btn-reset-filter" class="btn-outline" hidden>日付絞込を解除</button>
+          <button type="button" id="btn-export-csv" class="btn-outline" title="検索結果をCSVファイルで保存">📥 CSV保存</button>
+        </div>
+      </div>
+
+      <!-- リスト表示・カレンダー表示コンテナ -->
+      <div id="view-list" class="view-container"></div>
+      <div id="view-calendar" class="view-container" hidden></div>
+    </section>
+  </main>
+
+  <!-- 右下フローティング・トースト通知 -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js?v=20261029_02"></script>
+</body>
+</html>

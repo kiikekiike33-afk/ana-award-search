@@ -1,0 +1,33 @@
+# 機密情報・認証トークン・個人データ（最重要：絶対にGitに含めない）
+*.env
+config/
+ana-award-search.env
+ua_profile/
+*/ua_profile/
+
+# Python仮想環境・キャッシュ
+host_venv/
+*/host_venv/
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ログファイル・デバッグ出力
+*.log
+api_log.txt
+*/api_log.txt
+temp_fields.txt
+*.png
+*.jpg
+*.html
+!code/frontend/index.html
+
+# OS・エディタ関連
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
