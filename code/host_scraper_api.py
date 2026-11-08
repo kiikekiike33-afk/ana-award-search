@@ -15,7 +15,8 @@ import traceback
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -28,6 +29,8 @@ load_dotenv(os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-se
 UA_PW = os.getenv("UA_PASSWORD", "")
 ANA_ID = os.getenv("ANA_MEMBER_ID", "")
 ANA_PW = os.getenv("ANA_PASSWORD", "")
+HOST_API_TOKEN = os.getenv("HOST_API_TOKEN", "ana-award-local-token-2026")
+HOST_API_BIND = os.getenv("HOST_API_BIND", "0.0.0.0")
 PROFILE_DIR = os.path.join(BASE_DIR, "ua_profile")
 
 ANA_AWARD_INPUT_URL = (
@@ -394,6 +397,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="UA Scraper API", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def verify_token_middleware(request: Request, call_next):
+    """ホストAPI認証ミドルウェア: X-Host-Token を照合し、LAN等からの不正アクセスを遮断（指示06対応）"""
+    if request.url.path.startswith("/api/"):
+        token = request.headers.get("X-Host-Token")
+        if token != HOST_API_TOKEN:
+            client_ip = request.client.host if request.client else "unknown"
+            log(f"【セキュリティ】認証なしまたは不正トークンのアクセスを拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "認証トークンが無効または未指定です。アクセスが拒否されました。"},
+            )
+    return await call_next(request)
+
+
 @app.get("/api/search")
 async def search_flights(origin: str, destination: str, date: str, passengers: int = 1):
     log(f"検索リクエスト: {origin} -> {destination} {date} ({passengers}名)")
@@ -637,4 +655,4 @@ async def ana_autofill(req: AnaAutofillRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host=HOST_API_BIND, port=8001)

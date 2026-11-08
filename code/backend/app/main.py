@@ -124,10 +124,15 @@ def ana_autofill(payload: AnaAutofillPayload):
     """Windowsホスト側のChromeでANA国際線特典予約画面を開き、検索条件を自動入力する"""
     url = "http://host.docker.internal:8001/api/ana-autofill"
     body_bytes = json.dumps(payload.model_dump()).encode("utf-8")
+    token = getattr(settings, "host_api_token", "ana-award-local-token-2026")
     req = urllib.request.Request(
         url,
         data=body_bytes,
-        headers={"Content-Type": "application/json", "User-Agent": "AnaAwardSearchAPI/1.0"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "AnaAwardSearchAPI/1.0",
+            "X-Host-Token": token,
+        },
         method="POST",
     )
     try:

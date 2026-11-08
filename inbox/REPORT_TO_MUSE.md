@@ -197,3 +197,32 @@
   - 全体テスト（unittest discover）: 14テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示06（P1: ホストAPIの公開範囲を絞る）に着手します。
+
+### 指示06（P1）ホストAPIの公開範囲を絞る
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `code/host_scraper_api.py`:
+     - セキュリティ認証ミドルウェア（`verify_token_middleware`）を追加。`/api/search` および `/api/ana-autofill` へのアクセス時にリクエストヘッダー `X-Host-Token` を検証し、トークン未指定または不一致の場合は即座に `HTTP 401 Unauthorized` で遮断。
+     - 起動時のバインドホストを環境変数 `HOST_API_BIND`（デフォルト `0.0.0.0`）として環境に応じて設定可能に変更。
+  2. `code/backend/app/config.py`:
+     - `Settings` に `host_api_token: str = "ana-award-local-token-2026"`（環境変数 `HOST_API_TOKEN` で上書き可能）を追加。
+  3. `code/backend/app/scraper/ua.py` & `code/backend/app/main.py`:
+     - ホストAPI呼び出し（検索およびANA自動入力）の全リクエストに `X-Host-Token` ヘッダーを付与。
+     - `ua.py` でトークン不一致による401と、認証コード待ちによる401を判別して適切にエラー処理するよう修正。
+  4. テスト追加（`tests/test_host_api_auth.py`）:
+     - トークンなし、または不正トークンのリクエストが確実に 401 で拒否され、正規トークン付きリクエストが正常に通過することを検証。
+- **変更ファイル**:
+  - `code/host_scraper_api.py`
+  - `code/backend/app/config.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/backend/app/main.py`
+  - `tests/test_host_api_auth.py` (新規追加)
+- **外部事実・検証結果（Docker通信とバインド仕様）**:
+  - Windows の Docker Desktop（WSL2 / Hyper-V）では、コンテナ内部から `host.docker.internal` に通信すると WSL 仮想 NIC 経由でホストに到達するため、ホスト側が `127.0.0.1` のみにバインドされていると接続拒否（Connection refused）となります。
+  - そのため、コンテナからの通信を成立させつつ LAN 側の別端末からの不正アクセスや ANA 自動入力起動を確実に防ぐため、要件2に従い **共有トークンヘッダー認証（`X-Host-Token`）による完全アクセス制御** を導入しました。
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_host_api_auth.py`
+  - 2テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 16テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示07（P1: 「We're sorry」制限時の扱いと README の一致）に着手します。

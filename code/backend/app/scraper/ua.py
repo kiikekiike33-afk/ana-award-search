@@ -5,6 +5,11 @@ import urllib.error
 import urllib.request
 from .base import AwardProvider, Availability, BlockedError, CashDisplayError, RetryableError
 
+try:
+    from ..config import settings
+except Exception:
+    settings = None
+
 
 def _parse_miles_num(miles_str: str) -> float:
     """'55k' や '93.9k' などの文字列からソート用の数値（55.0など）を取り出す"""
@@ -45,11 +50,27 @@ class UAProvider(AwardProvider):
 
         try:
             # ブラウザの自動操作（ログイン時の確認コード手打ち待機を含む）が終わるまで最長360秒（6分）待機
-            req = urllib.request.Request(url, headers={"User-Agent": "AnaAwardSearchWorker/1.0"})
+            raw_token = getattr(settings, "host_api_token", None) if settings else None
+            token = raw_token if isinstance(raw_token, str) else "ana-award-local-token-2026"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "AnaAwardSearchWorker/1.0",
+                    "X-Host-Token": token,
+                },
+            )
             with urllib.request.urlopen(req, timeout=360) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            err_body = ""
+            try:
+                err_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+
             if e.code == 401:
+                if "トークン" in err_body or "token" in err_body.lower():
+                    raise RetryableError(f"ホストAPI認証エラー: 共有トークンが不正です ({err_body})")
                 # 認証コード待ちタイムアウト時はリトライや次の都市への移動を一切行わず、その場で検索ジョブ全体を停止する
                 raise BlockedError("認証コード入力待ちのため検索を一時停止しました（再度のログイン試行は行いません）。Chrome画面でコードを入力してログイン完了後、もう一度検索を開始してください。")
             if e.code == 409:

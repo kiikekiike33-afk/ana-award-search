@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """設定。値はすべて環境変数（.env）から読み込み、コードには直接書かない。"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
     scraper_provider: str = "ua"            # ua（実サイト検索） | mock（テスト用仮データ）
+    host_api_token: str = "ana-award-local-token-2026"  # ホストAPI認証用共有トークン
     min_delay_sec: float = 4.0              # 検索ごとの最小待機秒数
     max_delay_sec: float = 9.0              # 検索ごとの最大待機秒数
     long_break_every: int = 50              # この件数ごとに長めの休憩を入れる
@@ -17,4 +19,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
