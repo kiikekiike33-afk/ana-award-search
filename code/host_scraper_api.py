@@ -24,8 +24,26 @@ from playwright.async_api import async_playwright
 
 # ---------- 設定 ----------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# 機密情報（ID/パスワード）は config フォルダの外部ファイルから読み込む
-load_dotenv(os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-search.env")))
+
+
+def load_app_env():
+    """環境変数ファイルの多段階探索（外部config・リポジトリ内.env・.env.exampleフォールバック対応）"""
+    candidates = [
+        os.getenv("ANA_AWARD_ENV_FILE"),
+        os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-search.env")),
+        os.path.abspath(os.path.join(BASE_DIR, ".env")),
+        os.path.abspath(os.path.join(BASE_DIR, "../.env")),
+        os.path.abspath(os.path.join(BASE_DIR, "../.env.example")),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            load_dotenv(path)
+            return path
+    return None
+
+
+load_app_env()
+
 UA_USER = os.getenv("UA_USERNAME", "")
 UA_PW = os.getenv("UA_PASSWORD", "")
 ANA_ID = os.getenv("ANA_MEMBER_ID", "")

@@ -19,6 +19,8 @@ ana-award-search/
   │   ├─ host_scraper_api.py   # Windows側Chrome常駐・Playwright中継API
   │   ├─ docker-compose.yml    # コンテナ構成（backend, worker, redis）
   │   ├─ backend/
+  │   │     ├─ Dockerfile      # 軽量バックエンドイメージ（Playwright除外）
+  │   │     ├─ requirements.txt# 依存ライブラリ（バージョン固定）
   │   │     ├─ app/main.py     # FastAPI Web API
   │   │     ├─ app/tasks.py    # Celery 検索タスク
   │   │     └─ scraper/        # 検索プロバイダ（ua.py / mock.py）
@@ -46,8 +48,10 @@ ana-award-search/
   - 検索結果をExcel対応のCSVファイル（BOM付きUTF-8）としてワンクリックで保存できます。
 
 ## 4. セットアップと起動手順
+
+### A. 通常利用（実サイト検索モード）
 1. **設定ファイルの準備**
-   - `antigravity/config/ana-award-search.env` に以下の設定を記述します：
+   - `antigravity/config/ana-award-search.env` またはリポジトリルートの `.env` に以下の設定を記述します：
      ```env
      SCRAPER_PROVIDER=ua
      HOST_API_TOKEN=your_secure_token_here
@@ -58,3 +62,16 @@ ana-award-search/
      ```
 2. **起動**
    - `マイル検索アプリ.vbs` をダブルクリックして起動します。
+
+### B. リポジトリ単体起動（Mock モード / 開発・動作確認用）
+認証情報や外部 config フォルダがなくても、リポジトリ単体ですぐに動作確認が可能です。
+1. **環境変数の指定（任意）**
+   - リポジトリルートに `.env` を作成し `SCRAPER_PROVIDER=mock` と記述するか、`.env.example` のまま起動します。
+2. **Docker Compose の起動**
+   ```bash
+   cd code
+   docker compose up -d
+   ```
+3. **ブラウザで確認**
+   - ブラウザで `http://localhost:8000` にアクセスします。
+   - 画面で出発地・目的地・期間を選択し、「空席サーチ開始」をクリックすると、モックデータによる空席検索・進捗更新・一覧表示・カレンダー表示の一連のフローが確認できます。

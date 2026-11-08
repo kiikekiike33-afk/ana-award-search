@@ -331,3 +331,34 @@
   - 全体テスト（unittest discover）: 24テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示11（P2: リポジトリ単体起動と依存固定）に着手します。
+
+### 指示11（P2）リポジトリ単体で起動できるようにする＋依存の固定
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `code/docker-compose.yml`:
+     - `env_file` に `required: false` の多段階フォールバック（既存の `../../../config/ana-award-search.env` → リポジトリ内 `code/.env` → `.env.example`）を設定。外部設定ファイルが存在しない新規クローン環境でも起動エラーとならず、`SCRAPER_PROVIDER=mock` で即座に起動できるよう改修（既存配置に対する後方互換性も完全維持）。
+  2. `code/host_scraper_api.py`:
+     - `load_app_env()` を新設し、環境変数 `ANA_AWARD_ENV_FILE`、既存外部パス、リポジトリ内 `.env`、`.env.example` の順で多段階探索して読み込むよう改修。
+  3. `code/backend/requirements.txt`:
+     - 実運用環境を基準に全依存パッケージへバージョン制約（`fastapi>=0.110.0,<1.0.0` 等）を付与。backend では使用しない `playwright` を除外。
+  4. `code/backend/Dockerfile`:
+     - backend イメージから不要な `playwright install --with-deps chromium` を削除し、イメージサイズを大幅に軽量化・ビルド高速化。
+  5. `docs/README.md`:
+     - 外部設定や認証情報不要で動作確認できる「リポジトリ単体起動（Mockモード）手順」を明記。
+  6. テスト追加（`tests/test_standalone_readiness.py`）:
+     - Dockerfile からの Playwright 除去、requirements.txt のバージョン制約、docker-compose のフォールバック設定、MockProvider 単体動作を検証。
+- **変更ファイル**:
+  - `code/docker-compose.yml`
+  - `code/backend/Dockerfile`
+  - `code/backend/requirements.txt`
+  - `code/host_scraper_api.py`
+  - `docs/README.md`
+  - `tests/test_standalone_readiness.py` (新規追加)
+- **外部事実・検証状況**:
+  - PC上の Docker Desktop デーモンが停止しているため、実機での `docker compose up` ビルド実行は未実施（構成ファイルおよび Python 側の単体動作はテスト完了）。そのため「**実コンテナ起動は実機未検証**」と明記します。
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_standalone_readiness.py`
+  - 5テスト実行、全て成功 (OK)
+  - 全体テスト（unittest discover）: 29テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - 実Docker起動はDockerデーモン停止のため実機未検証。直ちに指示12（P2: ANA自動入力の復路日付ロジック整理）に着手します。
