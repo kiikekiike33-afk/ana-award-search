@@ -590,13 +590,28 @@ async def bring_window_to_foreground(page):
         log(f"ウィンドウ前面化エラー: {e}")
 
 
+def calculate_ana_return_date(dep_d: date, today: date | None = None) -> date:
+    """
+    ANA特典予約画面用の仮復路日付を計算する（指示12対応）
+    - ANA国際線特典航空券は片道発券ができず往復検索が必須のため、仮の復路日付を入力する
+    - 原則: 往路 + 7日（仮入力）
+    - 上限: 予約可能上限（今日 + 354日）を超える場合は上限日に丸める（同日や+1日に化けさせない）
+    """
+    if today is None:
+        today = date.today()
+    max_date = today + timedelta(days=354)
+
+    ret_d = dep_d + timedelta(days=7)
+    if ret_d > max_date:
+        ret_d = max_date
+    return ret_d
+
+
 async def _run_ana_autofill(page, req: AnaAutofillRequest):
     """ANA国際線特典航空券ページへ遷移し、必要なら自動ログインして検索条件を自動入力する"""
     try:
         dep_d = date.fromisoformat(req.date)
-        ret_d = dep_d + timedelta(days=7)
-        if (ret_d - date.today()).days > 354:
-            ret_d = dep_d + timedelta(days=1) if (dep_d - date.today()).days < 354 else dep_d
+        ret_d = calculate_ana_return_date(dep_d)
 
         dep_hidden = dep_d.strftime("%Y%m%d")
         dep_disp = f"{dep_d.year}年{dep_d.month:02d}月{dep_d.day:02d}日({DOW_JP[dep_d.weekday()]})"
