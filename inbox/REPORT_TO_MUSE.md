@@ -307,3 +307,27 @@
   - 全体テスト（unittest discover）: 22テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。直ちに指示10（P2: .gitignoreの穴を塞ぐ）に着手します。
+
+### 指示10（P2） .gitignore の穴を塞ぐ
+- **実施日時**: 2026-11-09
+- **実施内容**:
+  1. `.gitignore` のセキュリティ定義を拡張:
+     - セッション情報・ストレージ状態（`storage_state*.json`, `*_storage_state.json`）
+     - 通信ログ（`*.har`）
+     - データベース（`*.db`, `*.sqlite`, `*.sqlite3`）
+     - クッキー保存ファイル（`cookies*.txt`, `cookies*.json`）
+     - 環境変数バックアップ（`*.env.bak`, `*.env.save`, `*.env.backup`, `*.env.local`）
+     上記パターンを追加し、誤コミットによる機密情報漏洩リスクを遮断。
+  2. `.env.example` は引き続き Git 追跡可能となるよう、否定パターン（`!.env.example`, `!*.env.example`）を配置。
+  3. テスト追加（`tests/test_gitignore.py`）:
+     - `git check-ignore` を呼び出し、上記パターンが確実に除外され、`.env.example` は除外されないことを自動テストで検証。
+  4. リポジトリを Private にするかどうかはユーザーの判断事項であるため、設定は変更せず維持。
+- **変更ファイル**:
+  - `.gitignore`
+  - `tests/test_gitignore.py` (新規追加)
+- **テスト結果**:
+  - `code/host_venv/Scripts/python.exe tests/test_gitignore.py`
+  - 2テスト実行、成功 (OK)
+  - 全体テスト（unittest discover）: 24テスト全て成功 (OK)
+- **未確認事項 / 残課題**:
+  - なし。直ちに指示11（P2: リポジトリ単体起動と依存固定）に着手します。
