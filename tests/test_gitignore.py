@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """指示10の受け入れ条件テスト: .gitignore のセキュリティ除外検証"""
 import os
+import sys
 import subprocess
 import unittest
 
@@ -9,6 +10,7 @@ REPO_ROOT = os.path.dirname(BASE_DIR)
 GIT_EXE = r"C:\Program Files\Git\cmd\git.exe"
 
 
+@unittest.skipIf(sys.platform != "win32", "Windows の Git パスを前提とするテストのため非Windows環境ではスキップ")
 class TestGitignore(unittest.TestCase):
     def test_security_patterns_ignored(self):
         """セッション情報・Cookie・DB・envバックアップが正しく除外されること"""
