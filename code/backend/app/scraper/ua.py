@@ -1,4 +1,5 @@
 """ユナイテッド航空（UA）の検索APIを経由してスターアライアンス特典枠を取得するプロバイダ"""
+import os
 import json
 import re
 import urllib.error
@@ -9,6 +10,68 @@ try:
     from ..config import settings
 except Exception:
     settings = None
+
+
+def _get_settings():
+    """設定オブジェクトを取得（動的リロード・モック差し替えに対応）"""
+    try:
+        import app.config as cfg
+        return getattr(cfg, "settings", None)
+    except Exception:
+        try:
+            from ..config import settings as cfg_settings
+            return cfg_settings
+        except Exception:
+            return None
+
+
+def _get_host_api_config():
+    """ホストAPIトークンと無認証許可フラグを取得する（設定オブジェクト・環境変数の順で探索）"""
+    current_settings = _get_settings()
+    token = ""
+    allow_no_token = False
+
+    has_explicit_token = False
+    has_explicit_allow = False
+
+    if current_settings is not None:
+        raw_token = getattr(current_settings, "host_api_token", None)
+        if isinstance(raw_token, str):
+            token = raw_token.strip()
+            has_explicit_token = True
+
+        raw_allow = getattr(current_settings, "host_api_allow_no_token", None)
+        if isinstance(raw_allow, bool):
+            allow_no_token = raw_allow
+            has_explicit_allow = True
+
+    # settings で文字列・boolとして明示されていない場合のみ環境変数・.envから探索
+    if not has_explicit_token:
+        # 環境変数に既になければ、dotenvで探索
+        token = os.getenv("HOST_API_TOKEN", "").strip()
+        if not token:
+            try:
+                import dotenv
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                candidates = [
+                    os.getenv("ANA_AWARD_ENV_FILE"),
+                    os.path.abspath(os.path.join(base_dir, "../../../../../config/ana-award-search.env")),
+                    os.path.abspath(os.path.join(base_dir, "../../.env")),
+                    os.path.abspath(os.path.join(base_dir, "../../../.env")),
+                ]
+                for p in candidates:
+                    if p and os.path.exists(p):
+                        vals = dotenv.dotenv_values(p)
+                        if vals.get("HOST_API_TOKEN"):
+                            token = vals.get("HOST_API_TOKEN", "").strip()
+                            break
+            except Exception:
+                pass
+
+    if not has_explicit_allow:
+        allow_no_token = os.getenv("HOST_API_ALLOW_NO_TOKEN", "").strip().lower() in ("1", "true", "yes")
+
+    return token, allow_no_token
 
 
 def _parse_miles_num(miles_str: str) -> float:
@@ -48,16 +111,28 @@ class UAProvider(AwardProvider):
         # Dockerコンテナの中から、Windowsホスト（host.docker.internal）の8001番ポートへ通信
         url = f"http://host.docker.internal:8001/api/search?origin={origin}&destination={dest}&date={date_str}&passengers={passengers}"
 
+        # トークンの検証（指示13対応: 未設定時はフェイルクローズ、旧公開値は拒否）
+        token, allow_no_token = _get_host_api_config()
+
+        if token == "ana-award-local-token-2026":
+            raise RuntimeError(
+                "HOST_API_TOKEN に過去公開・漏洩した値が指定されています。安全のため検索を停止しました。新しいトークンへローテーションしてください。"
+            )
+
+        if not token and not allow_no_token:
+            raise RuntimeError(
+                "HOST_API_TOKEN が未設定です。環境変数 HOST_API_TOKEN を設定するか、ローカル検証時は HOST_API_ALLOW_NO_TOKEN=1 を指定してください。"
+            )
+
         try:
             # ブラウザの自動操作（ログイン時の確認コード手打ち待機を含む）が終わるまで最長360秒（6分）待機
-            raw_token = getattr(settings, "host_api_token", None) if settings else None
-            token = raw_token if isinstance(raw_token, str) else "ana-award-local-token-2026"
+            headers = {"User-Agent": "AnaAwardSearchWorker/1.0"}
+            if token:
+                headers["X-Host-Token"] = token
+
             req = urllib.request.Request(
                 url,
-                headers={
-                    "User-Agent": "AnaAwardSearchWorker/1.0",
-                    "X-Host-Token": token,
-                },
+                headers=headers,
             )
             with urllib.request.urlopen(req, timeout=360) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -73,6 +148,8 @@ class UAProvider(AwardProvider):
                     raise RetryableError(f"ホストAPI認証エラー: 共有トークンが不正です ({err_body})")
                 # 認証コード待ちタイムアウト時はリトライや次の都市への移動を一切行わず、その場で検索ジョブ全体を停止する
                 raise BlockedError("認証コード入力待ちのため検索を一時停止しました（再度のログイン試行は行いません）。Chrome画面でコードを入力してログイン完了後、もう一度検索を開始してください。")
+            if e.code == 503 and ("HOST_API_TOKEN" in err_body or "トークン" in err_body):
+                raise RuntimeError(f"ホストAPI設定エラー（HTTP 503）: {err_body}")
             if e.code == 409:
                 # 現金表示エラー（空席なしと誤認させず、エラーとして伝搬）
                 raise CashDisplayError("ユナイテッド航空の検索結果が現金表示になっているため、マイル特典枠を読み取れませんでした。マイル表示への切替が必要です。")

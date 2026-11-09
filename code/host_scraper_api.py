@@ -48,7 +48,9 @@ UA_USER = os.getenv("UA_USERNAME", "")
 UA_PW = os.getenv("UA_PASSWORD", "")
 ANA_ID = os.getenv("ANA_MEMBER_ID", "")
 ANA_PW = os.getenv("ANA_PASSWORD", "")
-HOST_API_TOKEN = os.getenv("HOST_API_TOKEN", "ana-award-local-token-2026")
+HOST_API_TOKEN = os.getenv("HOST_API_TOKEN", "").strip()
+HOST_API_ALLOW_NO_TOKEN = os.getenv("HOST_API_ALLOW_NO_TOKEN", "").strip().lower() in ("1", "true", "yes")
+KNOWN_LEAKED_TOKENS = {"ana-award-local-token-2026"}
 HOST_API_BIND = os.getenv("HOST_API_BIND", "0.0.0.0")
 PROFILE_DIR = os.path.join(BASE_DIR, "ua_profile")
 
@@ -442,8 +444,32 @@ def check_rate_limit(html: str) -> bool:
 
 
 # ---------- API ----------
+def check_host_api_token_config():
+    """HOST_API_TOKEN の設定状態をチェックし、セキュリティログを出力（指示13対応）"""
+    if HOST_API_TOKEN in KNOWN_LEAKED_TOKENS:
+        log("=" * 70)
+        log("【重大セキュリティ警告】HOST_API_TOKEN に公開・漏洩済みの値が指定されています！")
+        log("安全のため、このトークンでのリクエストは拒否されます。必ず新しいランダムなトークンにローテーションしてください。")
+        log("=" * 70)
+    elif not HOST_API_TOKEN:
+        if HOST_API_ALLOW_NO_TOKEN:
+            log("=" * 70)
+            log("【警告】HOST_API_ALLOW_NO_TOKEN=1 が指定されているため、認証なしでAPIを受け付けます。")
+            log("※ローカル開発検証専用です。本番環境やLAN公開時は重大なセキュリティリスクとなります。")
+            log("=" * 70)
+        else:
+            log("=" * 70)
+            log("【セキュリティ】HOST_API_TOKEN が未設定です。")
+            log("未設定時は保護エンドポイント（/api/search, /api/ana-autofill）へのアクセスは 503 で拒否されます。")
+            log("=" * 70)
+
+
+check_host_api_token_config()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    check_host_api_token_config()
     # 起動時：Chromeのみ待機状態で起動（勝手なダミー検索・ログイン試行は行わない）
     await ensure_browser()
     log("準備完了：検索を受け付けます")
@@ -461,11 +487,31 @@ app = FastAPI(title="UA Scraper API", lifespan=lifespan)
 
 @app.middleware("http")
 async def verify_token_middleware(request: Request, call_next):
-    """ホストAPI認証ミドルウェア: X-Host-Token を照合し、LAN等からの不正アクセスを遮断（指示06対応）"""
+    """ホストAPI認証ミドルウェア: X-Host-Token を照合し、不正アクセスを遮断（指示06・指示13対応）"""
     if request.url.path.startswith("/api/"):
+        client_ip = request.client.host if request.client else "unknown"
+
+        # 1. 公開・漏洩済みトークンが指定されている場合は安全のため拒否（指示13対応）
+        if HOST_API_TOKEN in KNOWN_LEAKED_TOKENS:
+            log(f"【セキュリティ】公開済み旧トークンが指定されているため拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "公開済みの旧トークンが指定されているためAPIアクセスが拒否されました。トークンをローテーションしてください。"},
+            )
+
+        # 2. 未設定時のフェイルクローズ（指示13対応）
+        if not HOST_API_TOKEN:
+            if HOST_API_ALLOW_NO_TOKEN:
+                return await call_next(request)
+            log(f"【セキュリティ】HOST_API_TOKEN が未設定のため拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "HOST_API_TOKEN が未設定のためアクセスが拒否されました。環境変数 HOST_API_TOKEN を設定してください。"},
+            )
+
+        # 3. トークン照合
         token = request.headers.get("X-Host-Token")
-        if token != HOST_API_TOKEN:
-            client_ip = request.client.host if request.client else "unknown"
+        if not token or token != HOST_API_TOKEN:
             log(f"【セキュリティ】認証なしまたは不正トークンのアクセスを拒否しました: IP={client_ip}, path={request.url.path}")
             return JSONResponse(
                 status_code=401,

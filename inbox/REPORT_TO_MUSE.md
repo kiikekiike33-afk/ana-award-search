@@ -381,3 +381,54 @@
   - 全体テスト（unittest discover）: 33テスト全て成功 (OK)
 - **未確認事項 / 残課題**:
   - なし。指示00〜12の全タスクが完了しました。
+
+---
+
+## 指示13: ホストAPIトークンのデフォルト値廃止と実値のローテーション
+
+- **実施内容**:
+  1. **デフォルト値の完全廃止**:
+     - `code/backend/app/config.py`: `host_api_token: str = ""` （デフォルト値を空文字に変更）。
+     - `code/host_scraper_api.py`: `HOST_API_TOKEN` の固定デフォルト値を廃止し、環境変数未設定時は空文字として扱うよう変更。
+     - `code/backend/app/scraper/ua.py` & `main.py`: ハードコードされたフォールバック固定値を完全除去。
+     - `.env.example`: `HOST_API_TOKEN=` （空文字）に変更し、ランダム文字列生成の案内コメントのみを記載（例示値は非記載）。
+  2. **未設定時のフェイルクローズ（安全停止）**:
+     - ホストAPI側: `HOST_API_TOKEN` が未設定または空の場合、`/api/` へのアクセスを HTTP 503 で拒否し、ログに「HOST_API_TOKEN が未設定のため拒否」を記録。
+     - バックエンド側: `host_api_token` が未設定の場合、明確な例外（`RuntimeError("HOST_API_TOKEN が未設定です")`）を送出して停止。
+     - ローカル開発例外: 環境変数 `HOST_API_ALLOW_NO_TOKEN=1` が指定された場合のみ無認証アクセスを許可し、起動時に目立つ警告ログを出力。
+     - 既知の漏洩値チェック: 旧公開値 `ana-award-local-token-2026` が指定された場合、安全のため HTTP 503 / RuntimeError でアクセスを拒否し、ローテーション要求ログを出力。
+  3. **実値のローテーション（PC実環境設定）**:
+     - Python の暗号論的擬似乱数生成器（`secrets.token_hex(32)`）を用いて、安全な新しいトークンを生成。
+     - 実環境ファイル `config/ana-award-search.env` に `HOST_API_TOKEN` として設定。
+     - ホスト側（`code/host_scraper_api.py` の `load_app_env()`）およびバックエンド側（`code/docker-compose.yml` の `env_file`）が同一の実環境ファイルを最優先で参照することを確認。
+     - 値を出力しない比較スクリプトにより、両側一致および正常読み取りを確認済み。
+       - 設定状況: 設定済み
+       - トークン長: 64文字
+       - 両側一致: はい（ホスト側・バックエンド側ともに完全一致）
+       - 旧公開値との不一致: はい（完全に新しい乱数）
+  4. **テストの拡充**:
+     - `tests/test_host_api_auth.py` を新仕様に合わせて更新（未設定時503拒否、無認証許可フラグ動作、旧公開値拒否、有効トークンでの通過・ヘッダー付与、.env.exampleとコード内の旧デフォルト値不在検証）。
+
+- **変更ファイル**:
+  - `code/backend/app/config.py`
+  - `code/backend/app/main.py`
+  - `code/backend/app/scraper/ua.py`
+  - `code/host_scraper_api.py`
+  - `.env.example`
+  - `tests/test_host_api_auth.py`
+  - `inbox/REPORT_TO_MUSE.md`
+  - `C:\Users\kiike\.gemini\antigravity\scratch\antigravity\config\ana-award-search.env` (Git管理外の実環境ファイル)
+
+- **テスト結果**:
+  - `code\host_venv\Scripts\python.exe -m unittest tests/test_host_api_auth.py`
+    - 8テスト実行、全て成功 (OK)
+  - `code\host_venv\Scripts\python.exe -m unittest discover tests`
+    - 全39テスト実行、全て成功 (OK)
+
+- **要判断（仕様判断）**:
+  - **旧公開値（`ana-award-local-token-2026`）の扱い**:
+    - 本改修では安全サイドに倒し、旧値が指定された場合は起動時警告を出した上で API 呼び出しを HTTP 503 で明示的に拒否（ブロック）する仕様としました。これにより、誤って過去の設定ファイルや古いスクリプトが使われた場合でも「公開済み合言葉での稼働継続」を確実に防止します。
+    - もし後方互換等の理由で「警告ログのみで通信自体は許可する」挙動に倒す必要がある場合は、ご指示いただければ速やかに変更可能です。
+
+- **未確認事項**:
+  - なし。新トークンの生成・設定・両側一致、およびテスト全件合格を確認済みです。
