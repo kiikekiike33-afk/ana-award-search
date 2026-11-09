@@ -15,7 +15,8 @@ import traceback
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -23,11 +24,34 @@ from playwright.async_api import async_playwright
 
 # ---------- 設定 ----------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# 機密情報（ID/パスワード）は config フォルダの外部ファイルから読み込む
-load_dotenv(os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-search.env")))
+
+
+def load_app_env():
+    """環境変数ファイルの多段階探索（外部config・リポジトリ内.env・.env.exampleフォールバック対応）"""
+    candidates = [
+        os.getenv("ANA_AWARD_ENV_FILE"),
+        os.path.abspath(os.path.join(BASE_DIR, "../../../config/ana-award-search.env")),
+        os.path.abspath(os.path.join(BASE_DIR, ".env")),
+        os.path.abspath(os.path.join(BASE_DIR, "../.env")),
+        os.path.abspath(os.path.join(BASE_DIR, "../.env.example")),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            load_dotenv(path)
+            return path
+    return None
+
+
+load_app_env()
+
+UA_USER = os.getenv("UA_USERNAME", "")
 UA_PW = os.getenv("UA_PASSWORD", "")
 ANA_ID = os.getenv("ANA_MEMBER_ID", "")
 ANA_PW = os.getenv("ANA_PASSWORD", "")
+HOST_API_TOKEN = os.getenv("HOST_API_TOKEN", "").strip()
+HOST_API_ALLOW_NO_TOKEN = os.getenv("HOST_API_ALLOW_NO_TOKEN", "").strip().lower() in ("1", "true", "yes")
+KNOWN_LEAKED_TOKENS = {"ana-award-local-token-2026"}
+HOST_API_BIND = os.getenv("HOST_API_BIND", "0.0.0.0")
 PROFILE_DIR = os.path.join(BASE_DIR, "ua_profile")
 
 ANA_AWARD_INPUT_URL = (
@@ -62,9 +86,9 @@ def log(msg: str):
     print(msg, flush=True)
 
 
-def search_url(origin: str, destination: str, date_str: str) -> str:
+def search_url(origin: str, destination: str, date_str: str, passengers: int = 1) -> str:
     return (f"https://www.united.com/en/us/fsr/choose-flights?f={origin}&t={destination}&d={date_str}"
-            "&tt=1&at=1&rm=1&act=0&px=1&taxng=1&newHP=True&clm=7&st=bestmatches&fareWheel=False")
+            f"&tt=1&at=1&rm=1&act=0&px={passengers}&taxng=1&newHP=True&clm=7&st=bestmatches&fareWheel=False")
 
 
 # ---------- ブラウザ管理 ----------
@@ -89,12 +113,6 @@ async def ensure_browser():
 
     ctx.on("close", on_close)
     browser_ctx = ctx
-
-
-async def reset_browser_session():
-    """※ログイン済みの記憶（Cookie・2段階認証トークン）が消えてしまうのを防ぐため、Cookie消去は行わない"""
-    log("【セッション保護】ログイン状態を維持するため、Cookieを消去せずに待機します...")
-    await asyncio.sleep(3)
 
 
 async def move_window(page, visible: bool):
@@ -213,28 +231,72 @@ def show_message(text: str, title: str):
     ctypes.windll.user32.MessageBoxW(0, text, title, 0x40 | 0x10000 | 0x40000)
 
 
-async def do_login(page):
-    """ログインが必要なページで、パスワード自動入力 → コード入力画面で一時停止し、ログイン完了を確認して再開"""
-    log("ログインが必要です。Chromeを最前面に表示してパスワード入力を試みます...")
-    await bring_window_to_foreground(page)
+async def fill_login_credentials(page, username: str, password: str) -> bool:
+    """ログイン画面の入力欄（ユーザー名/メールアドレスおよびパスワード）を判定して自動入力する（指示08対応）"""
+    entered = False
 
-    # パターンB の場合は、まず「Sign In」ボタンでパスワード入力パネルを開く
+    # 1. サインインパネルを開くボタンがある場合はクリック
     sign_in_btn = page.get_by_role("button", name="Sign In", exact=True)
-    if not await is_visible(page.locator("input#password")) and await is_visible(sign_in_btn):
-        await sign_in_btn.first.click()
-        await asyncio.sleep(5)
+    pw_input = page.locator('input#password, input[type="password"]')
+    user_input = page.locator(
+        'input#username, input#email, input#mileagePlusNumber, input[name*="username" i], input[name*="email" i], input[name*="mileage" i], input[autocomplete="username"], input[type="email"]'
+    )
 
-    pw_box = page.locator("input#password")
-    if UA_PW and await is_visible(pw_box):
+    if not await is_visible(pw_input) and not await is_visible(user_input) and await is_visible(sign_in_btn):
+        await sign_in_btn.first.click()
+        await asyncio.sleep(3)
+
+    # 2. ユーザー名 / MileagePlus番号 / メールアドレスの入力
+    user_input = page.locator(
+        'input#username, input#email, input#mileagePlusNumber, input[name*="username" i], input[name*="email" i], input[name*="mileage" i], input[autocomplete="username"], input[type="email"]'
+    )
+    if username and await is_visible(user_input):
         try:
-            await pw_box.first.fill(UA_PW)
-            submit = page.locator('button[type="submit"]', has_text=re.compile(r"^\s*Sign in\s*$"))
-            await submit.first.click()
-            log("パスワードを送信しました。画面の切り替わり（コード入力画面等）を待機します...")
-            # コード入力画面が表示されるまで少し待つ（この間に誤って完了判定しないようにする）
-            await asyncio.sleep(8)
+            log("ユーザー名/MileagePlus番号を入力します...")
+            await user_input.first.fill(username)
+            entered = True
+            await asyncio.sleep(0.5)
+
+            # ステップ型ログイン（ユーザー名入力後に次へボタンを押す画面）の場合
+            pw_input = page.locator('input#password, input[type="password"]')
+            if not await is_visible(pw_input):
+                next_btn = page.locator(
+                    'button[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Sign in"), button:has-text("Sign In")'
+                )
+                if await is_visible(next_btn):
+                    await next_btn.first.click()
+                    await asyncio.sleep(3)
         except Exception as e:
-            log(f"自動ログイン中にエラー: {e}")
+            log(f"ユーザー名入力中にエラー: {e}")
+
+    # 3. パスワードの入力
+    pw_input = page.locator('input#password, input[type="password"]')
+    if password and await is_visible(pw_input):
+        try:
+            log("パスワードを入力します...")
+            await pw_input.first.fill(password)
+            entered = True
+            submit = page.locator('button[type="submit"]', has_text=re.compile(r"^\s*Sign in\s*$", re.IGNORECASE))
+            if await is_visible(submit):
+                await submit.first.click()
+                log("パスワードを送信しました。画面の切り替わりを待機します...")
+                await asyncio.sleep(8)
+            else:
+                submit_alt = page.locator('button:has-text("Sign in"), button:has-text("Sign In")')
+                if await is_visible(submit_alt):
+                    await submit_alt.first.click()
+                    await asyncio.sleep(8)
+        except Exception as e:
+            log(f"パスワード入力中にエラー: {e}")
+
+    return entered
+
+
+async def do_login(page):
+    """ログインが必要なページで、ユーザー名・パスワード自動入力 → コード入力画面で一時停止し、ログイン完了を確認して再開"""
+    log("ログインが必要です。Chromeを最前面に表示して自動ログインを試みます...")
+    await bring_window_to_foreground(page)
+    await fill_login_credentials(page, UA_USER, UA_PW)
 
     # すでに完全ログイン済みか確認し、コード入力画面等が出ている場合は手打ち完了まで完全停止して待つ
     log("確認コード入力またはログイン完了の確認を待機しています（手打ち完了後に自動再開します）...")
@@ -278,34 +340,136 @@ async def initial_login_check():
         log("準備完了：検索を受け付けます")
 
 
-# ---------- 検索結果の読み取り（従来どおり） ----------
-def parse_flights(html):
+# ---------- 検索結果の読み取り ----------
+def parse_flights_with_meta(html):
+    """HTMLからフライト情報を抽出する（運賃クラス保持およびパース失敗検知）"""
     soup = BeautifulSoup(html, "html.parser")
     flight_nodes = soup.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
 
     results = []
+    failed_count = 0
     for node in flight_nodes:
-        flight_desc = node["aria-label"]
+        flight_desc = node.get("aria-label", "")
         parent = node
         for _ in range(6):
-            if parent.parent:
+            if parent.parent and parent.parent.name not in ["body", "html"]:
+                # 祖先を遡りすぎて他のフライトブロックを巻き込まないようにする
+                other_flights = parent.parent.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+                if len(other_flights) > 1:
+                    break
                 parent = parent.parent
+            else:
+                break
         raw_text = parent.get_text(separator=" | ", strip=True)
 
-        eco_match = re.search(r"Economy\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text)
-        bus_match = re.search(r"Business[^(]*\([^)]*\)\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text)
+        eco_match = re.search(r"Economy(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+        bus_match = re.search(r"Business(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+        first_match = re.search(r"First(?:\s*\(([A-Za-z0-9]+)\))?\s*\|\s*([\d\.]+k)\s*\|\s*miles", raw_text, re.IGNORECASE)
+
+        # マイルまたは価格表記が全く取れず、クラス抽出が空の場合はパース失敗カードとしてカウント
+        if not eco_match and not bus_match and not first_match:
+            failed_count += 1
+            results.append({
+                "flight_description": flight_desc,
+                "economy_miles": "N/A",
+                "economy_fare_class": None,
+                "business_miles": "N/A",
+                "business_fare_class": None,
+                "first_miles": "N/A",
+                "first_fare_class": None,
+                "parse_failed": True,
+            })
+            continue
+
+        eco_miles = eco_match.group(2) if eco_match else "N/A"
+        eco_class = eco_match.group(1).upper() if (eco_match and eco_match.group(1)) else ("UNKNOWN" if eco_match else None)
+
+        bus_miles = bus_match.group(2) if bus_match else "N/A"
+        bus_class = bus_match.group(1).upper() if (bus_match and bus_match.group(1)) else ("UNKNOWN" if bus_match else None)
+
+        first_miles = first_match.group(2) if first_match else "N/A"
+        first_class = first_match.group(1).upper() if (first_match and first_match.group(1)) else ("UNKNOWN" if first_match else None)
 
         results.append({
             "flight_description": flight_desc,
-            "economy_miles": eco_match.group(1) if eco_match else "N/A",
-            "business_miles": bus_match.group(1) if bus_match else "N/A",
+            "economy_miles": eco_miles,
+            "economy_fare_class": eco_class,
+            "business_miles": bus_miles,
+            "business_fare_class": bus_class,
+            "first_miles": first_miles,
+            "first_fare_class": first_class,
+            "parse_failed": False,
         })
-    return results
+    return results, failed_count
+
+
+def parse_flights(html):
+    """下位互換用: フライトリストのみを返す"""
+    flights, _ = parse_flights_with_meta(html)
+    return flights
+
+
+def check_display_mode(html: str) -> str:
+    """HTMLから検索結果の表示モード（'miles', 'cash', 'no_flights'）を判定する"""
+    soup = BeautifulSoup(html, "html.parser")
+    flight_nodes = soup.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+    if not flight_nodes:
+        return "no_flights"
+
+    all_cards_text = []
+    for node in flight_nodes:
+        parent = node
+        for _ in range(6):
+            if parent.parent and parent.parent.name not in ["body", "html"]:
+                other_flights = parent.parent.find_all(lambda tag: tag.has_attr("aria-label") and "Details for the flight" in tag["aria-label"])
+                if len(other_flights) > 1:
+                    break
+                parent = parent.parent
+            else:
+                break
+        all_cards_text.append(parent.get_text(separator=" | ", strip=True))
+
+    full_cards_text = " ".join(all_cards_text)
+    has_miles = bool(re.search(r"miles\b", full_cards_text, re.IGNORECASE))
+    has_cash = bool(re.search(r"(\$|USD|JPY|EUR)\s*[\d,]+", full_cards_text, re.IGNORECASE))
+
+    if not has_miles and has_cash:
+        return "cash"
+    return "miles"
+
+
+def check_rate_limit(html: str) -> bool:
+    """HTML内にユナイテッド航空の一時制限画面（We're sorry...）が含まれているか判定（指示07対応）"""
+    return "we're sorry, but united.com was unable to complete your request" in html.lower()
 
 
 # ---------- API ----------
+def check_host_api_token_config():
+    """HOST_API_TOKEN の設定状態をチェックし、セキュリティログを出力（指示13対応）"""
+    if HOST_API_TOKEN in KNOWN_LEAKED_TOKENS:
+        log("=" * 70)
+        log("【重大セキュリティ警告】HOST_API_TOKEN に公開・漏洩済みの値が指定されています！")
+        log("安全のため、このトークンでのリクエストは拒否されます。必ず新しいランダムなトークンにローテーションしてください。")
+        log("=" * 70)
+    elif not HOST_API_TOKEN:
+        if HOST_API_ALLOW_NO_TOKEN:
+            log("=" * 70)
+            log("【警告】HOST_API_ALLOW_NO_TOKEN=1 が指定されているため、認証なしでAPIを受け付けます。")
+            log("※ローカル開発検証専用です。本番環境やLAN公開時は重大なセキュリティリスクとなります。")
+            log("=" * 70)
+        else:
+            log("=" * 70)
+            log("【セキュリティ】HOST_API_TOKEN が未設定です。")
+            log("未設定時は保護エンドポイント（/api/search, /api/ana-autofill）へのアクセスは 503 で拒否されます。")
+            log("=" * 70)
+
+
+check_host_api_token_config()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    check_host_api_token_config()
     # 起動時：Chromeのみ待機状態で起動（勝手なダミー検索・ログイン試行は行わない）
     await ensure_browser()
     log("準備完了：検索を受け付けます")
@@ -321,9 +485,44 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="UA Scraper API", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def verify_token_middleware(request: Request, call_next):
+    """ホストAPI認証ミドルウェア: X-Host-Token を照合し、不正アクセスを遮断（指示06・指示13対応）"""
+    if request.url.path.startswith("/api/"):
+        client_ip = request.client.host if request.client else "unknown"
+
+        # 1. 公開・漏洩済みトークンが指定されている場合は安全のため拒否（指示13対応）
+        if HOST_API_TOKEN in KNOWN_LEAKED_TOKENS:
+            log(f"【セキュリティ】公開済み旧トークンが指定されているため拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "公開済みの旧トークンが指定されているためAPIアクセスが拒否されました。トークンをローテーションしてください。"},
+            )
+
+        # 2. 未設定時のフェイルクローズ（指示13対応）
+        if not HOST_API_TOKEN:
+            if HOST_API_ALLOW_NO_TOKEN:
+                return await call_next(request)
+            log(f"【セキュリティ】HOST_API_TOKEN が未設定のため拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "HOST_API_TOKEN が未設定のためアクセスが拒否されました。環境変数 HOST_API_TOKEN を設定してください。"},
+            )
+
+        # 3. トークン照合
+        token = request.headers.get("X-Host-Token")
+        if not token or token != HOST_API_TOKEN:
+            log(f"【セキュリティ】認証なしまたは不正トークンのアクセスを拒否しました: IP={client_ip}, path={request.url.path}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "認証トークンが無効または未指定です。アクセスが拒否されました。"},
+            )
+    return await call_next(request)
+
+
 @app.get("/api/search")
-async def search_flights(origin: str, destination: str, date: str):
-    log(f"検索リクエスト: {origin} -> {destination} {date}")
+async def search_flights(origin: str, destination: str, date: str, passengers: int = 1):
+    log(f"検索リクエスト: {origin} -> {destination} {date} ({passengers}名)")
     async with search_lock:
         # 1回目でログイン切れが分かったら、そのタブでログイン完了まで待機する
         for attempt in range(2):
@@ -333,7 +532,7 @@ async def search_flights(origin: str, destination: str, date: str):
                 await ensure_browser()
                 page = await browser_ctx.new_page()
                 await move_window(page, visible=True)  # 強制的に画面内へ引き戻す
-                await page.goto(search_url(origin, destination, date), wait_until="domcontentloaded", timeout=60000)
+                await page.goto(search_url(origin, destination, date, passengers), wait_until="domcontentloaded", timeout=60000)
                 await asyncio.sleep(15)
 
                 # Escapeでポップアップを閉じる前に、ログイン切れかどうかを確認する
@@ -357,11 +556,14 @@ async def search_flights(origin: str, destination: str, date: str):
                             detail="ユナイテッド航空のログインが完了していないため、作業を停止しました。",
                         )
 
-                # ユナイテッド航空の一時エラー画面（We're sorry...）の検知（Cookieは絶対に消去しない）
+                # ユナイテッド航空の一時エラー画面（We're sorry...）の検知（指示07対応: 空席なしと誤認させず429を送出）
                 sorry_banner = page.locator("text=We're sorry, but united.com was unable to complete your request")
                 if await is_visible(sorry_banner):
-                    log(f"【検知】{origin}->{destination} ({date}) でユナイテッド航空の一時エラー画面（We're sorry...）が表示されました（ログイン保持のためスキップします）")
-                    return {"status": "success", "flights": []}
+                    log(f"【検知】{origin}->{destination} ({date}) でユナイテッド航空の一時エラー画面（We're sorry...）が表示されました")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="ユナイテッド航空の一時アクセス制限（We're sorry画面）を検知しました。",
+                    )
 
                 await page.keyboard.press("Escape")
                 await asyncio.sleep(2)
@@ -375,9 +577,29 @@ async def search_flights(origin: str, destination: str, date: str):
                 # 調査用に最新の画面写真を1枚だけ残す（毎回上書き）
                 await page.screenshot(path=os.path.join(BASE_DIR, "api_debug_resident.png"), full_page=True)
 
-                flights = parse_flights(html)
-                log(f"{len(flights)} 便見つかりました")
-                return {"status": "success", "flights": flights}
+                if check_rate_limit(html):
+                    log(f"【検知】{origin}->{destination} ({date}) HTML内で一時エラー画面（We're sorry...）を検知しました")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="ユナイテッド航空の一時アクセス制限（We're sorry画面）を検知しました。",
+                    )
+
+                # 現金表示モードの検知（指示03）
+                display_mode = check_display_mode(html)
+                if display_mode == "cash":
+                    log("【検知】検索結果が現金表示（通貨）になっています。マイル表示への切替が必要です。")
+                    raise HTTPException(
+                        status_code=409,
+                        detail="ユナイテッド航空の検索結果が現金表示になっています。マイル表示への切替が必要です。",
+                    )
+
+                flights, parse_failed_count = parse_flights_with_meta(html)
+                log(f"{len(flights)} 便抽出完了（パース失敗: {parse_failed_count} 便）")
+                return {
+                    "status": "success",
+                    "flights": flights,
+                    "parse_failed_count": parse_failed_count,
+                }
 
             except HTTPException:
                 raise
@@ -414,13 +636,28 @@ async def bring_window_to_foreground(page):
         log(f"ウィンドウ前面化エラー: {e}")
 
 
+def calculate_ana_return_date(dep_d: date, today: date | None = None) -> date:
+    """
+    ANA特典予約画面用の仮復路日付を計算する（指示12対応）
+    - ANA国際線特典航空券は片道発券ができず往復検索が必須のため、仮の復路日付を入力する
+    - 原則: 往路 + 7日（仮入力）
+    - 上限: 予約可能上限（今日 + 354日）を超える場合は上限日に丸める（同日や+1日に化けさせない）
+    """
+    if today is None:
+        today = date.today()
+    max_date = today + timedelta(days=354)
+
+    ret_d = dep_d + timedelta(days=7)
+    if ret_d > max_date:
+        ret_d = max_date
+    return ret_d
+
+
 async def _run_ana_autofill(page, req: AnaAutofillRequest):
     """ANA国際線特典航空券ページへ遷移し、必要なら自動ログインして検索条件を自動入力する"""
     try:
         dep_d = date.fromisoformat(req.date)
-        ret_d = dep_d + timedelta(days=7)
-        if (ret_d - date.today()).days > 354:
-            ret_d = dep_d + timedelta(days=1) if (dep_d - date.today()).days < 354 else dep_d
+        ret_d = calculate_ana_return_date(dep_d)
 
         dep_hidden = dep_d.strftime("%Y%m%d")
         dep_disp = f"{dep_d.year}年{dep_d.month:02d}月{dep_d.day:02d}日({DOW_JP[dep_d.weekday()]})"
@@ -551,4 +788,4 @@ async def ana_autofill(req: AnaAutofillRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host=HOST_API_BIND, port=8001)

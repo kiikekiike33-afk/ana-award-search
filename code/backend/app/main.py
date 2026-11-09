@@ -122,12 +122,35 @@ class AnaAutofillPayload(BaseModel):
 @app.post("/api/ana-autofill")
 def ana_autofill(payload: AnaAutofillPayload):
     """Windowsホスト側のChromeでANA国際線特典予約画面を開き、検索条件を自動入力する"""
+    raw_token = getattr(settings, "host_api_token", "") if settings else ""
+    token = raw_token if isinstance(raw_token, str) else ""
+    allow_no_token = getattr(settings, "host_api_allow_no_token", False) if settings else False
+
+    if token == "ana-award-local-token-2026":
+        raise HTTPException(
+            status_code=500,
+            detail="HOST_API_TOKEN に過去公開・漏洩した値が指定されています。トークンのローテーションが必要です。",
+        )
+
+    if not token and not allow_no_token:
+        raise HTTPException(
+            status_code=500,
+            detail="HOST_API_TOKEN が未設定です。環境変数 HOST_API_TOKEN を設定してください。",
+        )
+
     url = "http://host.docker.internal:8001/api/ana-autofill"
     body_bytes = json.dumps(payload.model_dump()).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "AnaAwardSearchAPI/1.0",
+    }
+    if token:
+        headers["X-Host-Token"] = token
+
     req = urllib.request.Request(
         url,
         data=body_bytes,
-        headers={"Content-Type": "application/json", "User-Agent": "AnaAwardSearchAPI/1.0"},
+        headers=headers,
         method="POST",
     )
     try:

@@ -15,12 +15,23 @@ class BlockedError(Exception):
     """ボット対策（CAPTCHAなど）を検知 → 突破は試みず、すぐに検索を止める"""
 
 
+class RateLimitError(Exception):
+    """ユナイテッド航空の一時アクセス制限画面（We're sorry）を検知"""
+
+
+class CashDisplayError(Exception):
+    """United検索結果が現金表示になっているエラー（空席なしと誤判定させない）"""
+
+
 @dataclass
 class Availability:
     query: dict
     available: bool
     seats_text: str = ""                          # 例："空席あり" / "残りわずか"
     flights: list[dict] = field(default_factory=list)
+    dynamic_count: int = 0                        # ANA発券対象外のダイナミックプライス枠件数
+    unknown_count: int = 0                        # 運賃クラス不明の件数
+    parse_failed_count: int = 0                   # 抽出に失敗したフライトカード件数
 
 
 class AwardProvider(ABC):

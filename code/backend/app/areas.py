@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """広域エリア→空港コードへの展開と、検索条件（クエリ）の一覧づくり。"""
 from datetime import date, timedelta
 
@@ -11,8 +12,10 @@ ORIGINS: dict[str, dict] = {
 # ※就航地は変わるため、定期的に見直すこと
 AREAS: dict[str, dict] = {
     "north_america": {"label": "北米・メキシコ", "airports": ["JFK", "ORD", "IAD", "IAH", "LAX", "SFO", "SEA", "SJC", "YVR", "YYZ", "MEX"]},
-    "europe": {"label": "ヨーロッパ", "airports": ["LHR", "CDG", "FRA", "MUC", "BRU", "VIE", "MXP", "ARN", "IST"]},
+    "europe": {"label": "ヨーロッパ", "airports": ["LHR", "CDG", "FRA", "MUC", "BRU", "VIE", "MXP", "ARN", "IST", "WAW", "ZRH"]},
     "southeast_asia": {"label": "東南アジア", "airports": ["BKK", "SIN", "KUL", "CGK", "MNL", "SGN", "HAN"]},
+    "oceania": {"label": "オセアニア", "airports": ["SYD", "PER", "MEL"]},
+    "india": {"label": "インド", "airports": ["DEL", "BOM"]},
     "hawaii": {"label": "ハワイ", "airports": ["HNL"]},
 }
 
@@ -41,6 +44,8 @@ AIRPORT_NAMES: dict[str, str] = {
     "MXP": "ミラノ",
     "ARN": "ストックホルム",
     "IST": "イスタンブール",
+    "WAW": "ワルシャワ",
+    "ZRH": "チューリッヒ",
     "BKK": "バンコク",
     "SIN": "シンガポール",
     "KUL": "クアラルンプール",
@@ -48,6 +53,11 @@ AIRPORT_NAMES: dict[str, str] = {
     "MNL": "マニラ",
     "SGN": "ホーチミン",
     "HAN": "ハノイ",
+    "SYD": "シドニー",
+    "PER": "パース",
+    "MEL": "メルボルン",
+    "DEL": "デリー",
+    "BOM": "ムンバイ",
     "HNL": "ホノルル",
 }
 

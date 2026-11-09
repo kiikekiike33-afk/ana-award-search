@@ -281,7 +281,15 @@ function startStream(id) {
     updateDestinationFilterOptions();
     render();
   });
-  on('error', (d) => console.warn('検索エラー', d.current, d.message));
+  on('error', (d) => {
+    console.warn('検索エラー', d.current, d.message);
+    const msg = d.message || '';
+    if (msg.includes('現金表示') || msg.includes('409') || msg.includes('マイル表示')) {
+      showToast(`⚠️ 【要切替】${d.current}: UA画面が現金表示になっています`);
+    } else {
+      showToast(`⚠️ エラー発生: ${d.current}`);
+    }
+  });
   on('done', (d) => { updateProgress({ ...d, current: '' }); finish('done'); });
   on('failed', (d) => finish('failed', d.message));
   on('cancelled', () => finish('cancelled'));
@@ -460,21 +468,27 @@ function renderList() {
         ? `${esc(f.dep_time)}発 → ${esc(f.arr_time)}着`
         : f.dep_time ? `${esc(f.dep_time)}発` : '時刻詳細は予約画面で確認';
 
-      const stopBadgeClass = f.is_direct ? 'stop-direct' : 'stop-conn';
-      const itemClass = f.is_direct ? 'flight-item is-direct' : 'flight-item';
+      const stopBadgeClass = f.is_direct === true ? 'stop-direct' : (f.is_direct === false ? 'stop-conn' : 'stop-unknown');
+      const itemClass = f.is_direct === true ? 'flight-item is-direct' : 'flight-item';
+      const fareClassBadge = f.fare_class
+        ? `<span class="fare-badge" title="予約クラス: ${esc(f.fare_class)}">クラス: ${esc(f.fare_class)}</span>`
+        : '';
 
       // 他クラスの参考マイル表示
       let otherClassHint = '';
       if (q.cabin === 'economy' && f.business_miles && f.business_miles !== 'N/A') {
-        otherClassHint = `<span class="sub-miles-hint">（ビジネス: ${esc(f.business_miles)}）</span>`;
+        const bCls = f.business_fare_class ? ` (${esc(f.business_fare_class)})` : '';
+        otherClassHint = `<span class="sub-miles-hint">（ビジネス: ${esc(f.business_miles)}${bCls}）</span>`;
       } else if (q.cabin !== 'economy' && f.economy_miles && f.economy_miles !== 'N/A') {
-        otherClassHint = `<span class="sub-miles-hint">（エコノミー: ${esc(f.economy_miles)}）</span>`;
+        const eCls = f.economy_fare_class ? ` (${esc(f.economy_fare_class)})` : '';
+        otherClassHint = `<span class="sub-miles-hint">（エコノミー: ${esc(f.economy_miles)}${eCls}）</span>`;
       }
 
       return `
         <div class="${itemClass}">
           <div class="flight-info">
             <span class="miles-badge">💺 ${esc(f.miles)}</span>
+            ${fareClassBadge}
             <span class="stop-badge ${stopBadgeClass}">${esc(f.stop_label)}</span>
             <span class="time-text">${timeStr}</span>
             ${otherClassHint}
@@ -495,6 +509,7 @@ function renderList() {
         <td class="route-cell">
           <span class="route-codes">${esc(q.origin)} → ${esc(q.destination)}</span>
           <span class="route-names">${esc(airportNames[q.origin] || q.origin)} ✈ ${esc(airportNames[q.destination] || q.destination)}</span>
+          ${r.parse_failed_count ? `<span class="parse-fail-badge" title="${r.parse_failed_count}件のカードを正常にパースできませんでした">⚠️ 一部読取失敗: ${r.parse_failed_count}件</span>` : ''}
         </td>
         <td>
           <div class="flight-list">${flightsHtml}</div>
@@ -612,7 +627,7 @@ $('#btn-export-csv').onclick = () => {
     showToast('⚠️ 出力する空席データがありません');
     return;
   }
-  const csvLines = [['日付', '曜日', '出発地コード', '出発都市', '目的地コード', '目的都市', '種別', '必要マイル', '出発時刻', '到着時刻']];
+  const csvLines = [['日付', '曜日', '出発地コード', '出発都市', '目的地コード', '目的都市', '予約クラス', '種別', '必要マイル', '出発時刻', '到着時刻']];
   for (const r of rows) {
     const q = r.query;
     const dow = getDowInfo(q.date).label;
@@ -624,6 +639,7 @@ $('#btn-export-csv').onclick = () => {
         airportNames[q.origin] || q.origin,
         q.destination,
         airportNames[q.destination] || q.destination,
+        f.fare_class || '',
         f.stop_label,
         f.miles,
         f.dep_time || '',
