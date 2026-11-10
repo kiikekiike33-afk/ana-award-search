@@ -1,8 +1,8 @@
 {
   "project": "ana-award-search",
-  "instruction": "GitHub 自動化（CI／Dependabot）の導入",
-  "status": "completed",
-  "conversation": "ANA特典航空券 空席サーチ開発と欧州実検索",
-  "finished_at": "2026-11-09T20:20:00+09:00",
-  "summary": "CIワークフローとDependabotを導入し、GitHub Actions初回実行で全39件テスト（37 pass / 2 skip）のグリーン成功を確認"
+  "instruction": "欧州路線特典航空券の未確認分実検索",
+  "status": "blocked",
+  "conversation": "欧州路線特典航空券空席検索・CI自動化導入",
+  "finished_at": "2026-11-10T13:12:17.431122+09:00",
+  "summary": "欧州実検索一時安全中断（429制限3回連続検知、累計19件）"
 }
