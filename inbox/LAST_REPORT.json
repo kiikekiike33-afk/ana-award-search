@@ -1,8 +1,8 @@
 {
   "project": "ana-award-search",
-  "instruction": "欧州路線特典航空券の未確認分実検索",
+  "instruction": "ANA公式サイトでの提携特典スポット照会（PCのChrome経由）",
   "status": "blocked",
   "conversation": "欧州路線特典航空券空席検索・CI自動化導入",
-  "finished_at": "2026-11-10T13:12:17.431122+09:00",
-  "summary": "欧州実検索一時安全中断（429制限3回連続検知、累計19件）"
+  "finished_at": "2026-11-11T12:12:00+09:00",
+  "summary": "ANA公式ログインにて二段階認証要求（loginState:3）を検知。自動化検知によるAPI保留のためblocked停止"
 }
