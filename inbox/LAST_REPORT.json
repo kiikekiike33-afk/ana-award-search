@@ -1,8 +1,8 @@
 {
   "project": "ana-award-search",
-  "instruction": "ANA公式サイトでの提携特典スポット照会（PCのChrome経由）",
+  "instruction": "ANA公式 提携特典スポット照会（PC Chrome経由・ワンタイムパスワード再試行）",
   "status": "blocked",
   "conversation": "欧州路線特典航空券空席検索・CI自動化導入",
-  "finished_at": "2026-11-11T12:12:00+09:00",
-  "summary": "ANA公式ログインにて二段階認証要求（loginState:3）を検知。自動化検知によるAPI保留のためblocked停止"
+  "finished_at": "2026-11-11T18:55:00+09:00",
+  "summary": "ANA公式ログインはOTP不要で直接サインイン成功（小池様 914マイル）。国際線特典予約画面にて指定6件（IST/FRA->HND 2027年1月8/15/22日 ビジネス1名）の検索を実行したが、ANA予約バックエンドより『ただいま大変混み合っているか、コンピュータの調整中です』汎用エラー画面へリダイレクトされ空席照会がblocked。Chromeはクリーン終了しua_profileロック解放済み。"
 }
